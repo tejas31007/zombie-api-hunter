@@ -15,7 +15,6 @@ Unlike signature-based firewalls, this system uses **Unsupervised Machine Learni
 ## 🏗 Architecture
 The system follows a Microservices event-driven architecture:
 
-```mermaid
 graph TD
     User[Attacker/User] -->|HTTP Request| Proxy(FastAPI Gateway)
     Proxy -->|1. Log Request| Redis[(Redis Queue)]
