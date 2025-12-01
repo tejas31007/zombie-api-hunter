@@ -37,13 +37,11 @@ Message Broker: Redis
 ML Engine: PyTorch, Scikit-Learn (Isolation Forest)
 Dashboard: React.js, Tailwind CSS
 
-
 🗓 Project Roadmap
 [ ] Phase 1: Async Proxy Setup (FastAPI)
 [ ] Phase 2: Vulnerable Target App (Spring Boot)
 [ ] Phase 3: Data Pipeline & Event Queue (Redis)
 [ ] Phase 4: ML Anomaly Detection (PyTorch)
 [ ] Phase 5: Threat Dashboard (React)
-
 
 Created by Tejas Alawani
