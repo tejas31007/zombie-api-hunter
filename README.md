@@ -43,4 +43,8 @@ Dashboard: React.js, Tailwind CSS
 [ ] Phase 4: ML Anomaly Detection (PyTorch)
 [ ] Phase 5: Threat Dashboard (React)
 
+
+## 📄 License
+This project is open-source and available under the [MIT License](LICENSE).
+
 Created by Tejas Alawani
