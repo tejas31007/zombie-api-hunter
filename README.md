@@ -12,7 +12,7 @@ Unlike signature-based firewalls, this system uses **Unsupervised Machine Learni
 2. **BOLA (Broken Object Level Authorization):** Attackers manipulating IDs (e.g., changing `/user/100` to `/user/101`) to access unauthorized data.
 3. **Anomaly Traffic:** Scraping, Brute-force, and non-standard usage patterns.
 
-## 🏗 Architecture
+## 🏗 Architecture  
 The system follows a Microservices event-driven architecture:
 
 graph TD
