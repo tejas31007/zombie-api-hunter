@@ -4,7 +4,11 @@ from fastapi import FastAPI
 app = FastAPI(
     title="Zombie API Hunter",
     description="A reverse proxy with ML-powered anomaly detection.",
-    version="1.0.0"
+    version="1.0.0",
+    contact={
+        "name": "Your Name",
+        "email": "your.email@example.com",
+    },
 )
 
 @app.get("/")
