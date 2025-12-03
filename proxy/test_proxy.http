@@ -1,0 +1,4 @@
+Manual Test Log - Dec 2
+-----------------------
+GET /todos/1 -> 200 OK (Forwarded successfully)
+GET /health -> 200 OK (Internal route works)
