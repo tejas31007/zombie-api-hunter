@@ -1,26 +1,27 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from contextlib import asynccontextmanager
+import httpx
+from .config import settings
 
-# Initialize the "Hunter" (Our Proxy Server)
+# Global HTTP Client
+http_client = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Create the client
+    global http_client
+    http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
+    print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
+    yield
+    # Shutdown: Close the client
+    await http_client.aclose()
+    print("🔓 Hunter disconnected")
+
 app = FastAPI(
     title="Zombie API Hunter",
-    description="A reverse proxy with ML-powered anomaly detection.",
-    version="1.0.0",
-    contact={
-        "name": "Your Name",
-        "email": "your.email@example.com",
-    },
+    lifespan=lifespan
 )
-
-@app.get("/")
-async def root():
-    """
-    Health Check Endpoint.
-    """
-    return {"message": "The Hunter is active.", "status": "running"}
 
 @app.get("/health")
 async def health_check():
-    """
-    Explicit health check for monitoring tools.
-    """
-    return {"status": "ok"}
+    return {"status": "Hunter is active"}
