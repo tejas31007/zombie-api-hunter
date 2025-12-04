@@ -4,6 +4,8 @@ import httpx
 from .config import settings
 from .middleware import TimingMiddleware
 from .config import settings
+from .utils import get_logger
+request_logger = get_logger("traffic_inspector")
 
 # Global HTTP Client
 http_client = None
@@ -38,13 +40,20 @@ async def proxy_request(path_name: str, request: Request):
     # 1. Forward the request to the Victim (Async!)
     # We strip the original host header to avoid confusion
     url = f"/{path_name}"
+    # 1. Capture the Body (The Payload)
+    body = await request.body()
 
+    # 2. Log the Traffic (This is what we will feed to the AI later)
+    request_logger.info(
+        f"Incoming -> IP: {request.client.host} | Body: {body.decode('utf-8')[:100]}"
+    )
     try:
         upstream_response = await http_client.request(
             method=request.method,
             url=url,
             # specific query params (?)
             params=request.query_params, 
+            content=body
             # headers (optional, usually requires filtering)
             # content=await request.body()
         )
