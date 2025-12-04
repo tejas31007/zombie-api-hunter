@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 import httpx
 from .config import settings
+from .middleware import TimingMiddleware
+from .config import settings
 
 # Global HTTP Client
 http_client = None
