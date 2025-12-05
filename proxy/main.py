@@ -3,12 +3,13 @@ from contextlib import asynccontextmanager
 import httpx
 from .config import settings
 from .middleware import TimingMiddleware
-from .config import settings
 from .utils import get_logger
-request_logger = get_logger("traffic_inspector")
 
 # Global HTTP Client
 http_client = None
+
+# Initialize Traffic Inspector Logger
+request_logger = get_logger("traffic_inspector")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,43 +24,58 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Zombie API Hunter",
+    description="A reverse proxy with ML-powered anomaly detection.",
+    version="1.0.0",
+    contact={
+        "name": "Tejas Samir Alawani",  # Replace with your name if you wish
+        "email": "tejas31007@gmail.com",
+    },
     lifespan=lifespan
 )
 
+# ACTIVATE MIDDLEWARE
+app.add_middleware(TimingMiddleware)
+
 @app.get("/health")
 async def health_check():
+    """
+    Explicit health check for monitoring tools.
+    """
     return {"status": "Hunter is active"}
 
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_request(path_name: str, request: Request):
     """
-    Catches all traffic, forwards it to the Victim, and returns the response.
+    Catches all traffic, inspects the body, forwards it to the Victim, 
+    and returns the response.
     """
     global http_client
-
-    # 1. Forward the request to the Victim (Async!)
-    # We strip the original host header to avoid confusion
+    
     url = f"/{path_name}"
+    
     # 1. Capture the Body (The Payload)
+    # We read the body to inspect it for malicious patterns
     body = await request.body()
-
+    
     # 2. Log the Traffic (This is what we will feed to the AI later)
+    # We slice [:100] to avoid flooding logs with huge files in the console
     request_logger.info(
         f"Incoming -> IP: {request.client.host} | Body: {body.decode('utf-8')[:100]}"
     )
+
     try:
+        # 3. Forward the request to the Victim
         upstream_response = await http_client.request(
             method=request.method,
             url=url,
-            # specific query params (?)
+            # Pass specific query params (e.g. ?id=1)
             params=request.query_params, 
+            # Pass the body we captured
             content=body
-            # headers (optional, usually requires filtering)
-            # content=await request.body()
         )
-
-        # 2. Return the Victim's response to the User
+        
+        # 4. Return the Victim's response to the User
         return upstream_response.json()
-
+        
     except httpx.RequestError as exc:
         return {"error": f"Connection to victim failed: {str(exc)}"}
