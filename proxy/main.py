@@ -43,30 +43,24 @@ async def health_check():
     Explicit health check for monitoring tools.
     """
     return {"status": "Hunter is active"}
-
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_request(path_name: str, request: Request):
-    """
-    Catches all traffic, inspects the body, forwards it to the Victim, 
-    and returns the response.
-    """
     global http_client
-    
     url = f"/{path_name}"
     
-    # 1. Capture the Body (The Payload)
-    # We read the body to inspect it for malicious patterns
+    # 1. Capture Body
     body = await request.body()
     
-    # 2. Log the Traffic (This is what we will feed to the AI later)
-    # We slice [:100] to avoid flooding logs with huge files in the console
-    request_logger.info(
-        f"Incoming -> IP: {request.client.host} | Body: {body.decode('utf-8')[:100]}"
-    )
-
-    # ... (inside proxy_request function) ...
+    # 2. Log it (Safety check: decode only if it's text)
+    try:
+        log_body = body.decode('utf-8')[:100]
+    except:
+        log_body = "(Binary Data)"
+        
+    request_logger.info(f"Incoming -> IP: {request.client.host} | Body: {log_body}")
 
     try:
+        # 3. Forward to Java
         upstream_response = await http_client.request(
             method=request.method,
             url=url,
@@ -74,7 +68,7 @@ async def proxy_request(path_name: str, request: Request):
             content=body
         )
         
-        # FIX: Don't force .json(). Return raw content with correct headers.
+        # 4. Return Raw Content (Fixes the crash)
         return Response(
             content=upstream_response.content,
             status_code=upstream_response.status_code,
