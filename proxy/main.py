@@ -4,6 +4,7 @@ import httpx
 from .config import settings
 from .middleware import TimingMiddleware
 from .utils import get_logger
+from fastapi import FastAPI, Request, Response  # <--- Added Response
 
 # Global HTTP Client
 http_client = None
@@ -63,19 +64,22 @@ async def proxy_request(path_name: str, request: Request):
         f"Incoming -> IP: {request.client.host} | Body: {body.decode('utf-8')[:100]}"
     )
 
+    # ... (inside proxy_request function) ...
+
     try:
-        # 3. Forward the request to the Victim
         upstream_response = await http_client.request(
             method=request.method,
             url=url,
-            # Pass specific query params (e.g. ?id=1)
-            params=request.query_params, 
-            # Pass the body we captured
+            params=request.query_params,
             content=body
         )
         
-        # 4. Return the Victim's response to the User
-        return upstream_response.json()
+        # FIX: Don't force .json(). Return raw content with correct headers.
+        return Response(
+            content=upstream_response.content,
+            status_code=upstream_response.status_code,
+            media_type=upstream_response.headers.get("content-type")
+        )
         
     except httpx.RequestError as exc:
         return {"error": f"Connection to victim failed: {str(exc)}"}
