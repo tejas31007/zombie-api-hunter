@@ -43,6 +43,7 @@ async def health_check():
     Explicit health check for monitoring tools.
     """
     return {"status": "Hunter is active"}
+
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_request(path_name: str, request: Request):
     global http_client
