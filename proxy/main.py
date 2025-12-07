@@ -108,6 +108,7 @@ async def proxy_request(path_name: str, request: Request):
             status_code=upstream_response.status_code,
             media_type=upstream_response.headers.get("content-type")
         )
+    
         
     except httpx.RequestError as exc:
         return {"error": f"Connection to victim failed: {str(exc)}"}
