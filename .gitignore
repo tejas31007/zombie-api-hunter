@@ -22,3 +22,6 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Datasets
+*.csv
