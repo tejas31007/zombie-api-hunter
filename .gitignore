@@ -24,4 +24,6 @@ build/
 .idea/
 
 # Datasets
-*.csv
+*.csv   
+
+.ipynb_checkpoints
