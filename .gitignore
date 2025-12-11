@@ -27,3 +27,4 @@ build/
 *.csv   
 
 .ipynb_checkpoints
+*.pkl
