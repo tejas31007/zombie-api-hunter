@@ -64,6 +64,28 @@ class AIEngine:
         except Exception as e:
             logger.error(f"Prediction error: {e}")
             return 1 # Fail safe
+        
+
+    # ... inside AIEngine class ...
+    
+    def get_risk_score(self, path: str, method: str, body: str) -> float:
+        """
+        Returns the raw anomaly score.
+        Negative scores = Anomalies.
+        Positive scores = Normal.
+        The lower the score, the more abnormal the request is.
+        """
+        if not self.model:
+            return 0.0
+            
+        features = self.extract_features(path, method, body)
+        try:
+            # decision_function returns the raw score
+            score = self.model.decision_function(features)[0]
+            return float(score)
+        except Exception as e:
+            logger.error(f"Scoring error: {e}")
+            return 0.0
 
 # Global instance
 ai_engine = AIEngine()

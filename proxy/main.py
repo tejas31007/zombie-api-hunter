@@ -77,14 +77,18 @@ async def proxy_request(path_name: str, request: Request):
     # 🧠 AI SECURITY CHECK (Phase 3 Integration)
     # =========================================================
     # We ask the brain: "Is this safe?"
+    # ... inside proxy_request function ...
+
+    # 🧠 AI SECURITY CHECK
     prediction = ai_engine.predict(url, request.method, body_str)
     
     if prediction == -1:
-        # LOG AND BLOCK IMMEDIATELY
-        request_logger.warning(f"⛔ AI BLOCKED ATTACK -> IP: {request.client.host} | Path: {url}")
+        # NEW: Get the raw score for observability
+        risk_score = ai_engine.get_risk_score(url, request.method, body_str)
         
-        # We return a 403 Forbidden response and STOP here.
-        # The request never reaches the Java Victim or the Redis Logger.
+        # Log with the Score!
+        request_logger.warning(f"⛔ AI BLOCKED | Score: {risk_score:.4f} | IP: {request.client.host} | Path: {url}")
+        
         return Response(
             content='{"error": "Request blocked by AI Security Hunter"}',
             status_code=403,
