@@ -1,15 +1,16 @@
-import json  # <--- NEW: For converting logs to text
-import redis.asyncio as redis  # <--- NEW: The async Redis driver
+import json
+import redis.asyncio as redis
 from fastapi import FastAPI, Request, Response
 from contextlib import asynccontextmanager
 import httpx
+from .ai_engine import ai_engine  # <--- NEW: Import the Brain
 from .config import settings
 from .middleware import TimingMiddleware
 from .utils import get_logger
 
 # Global Clients
 http_client = None
-redis_client = None  # <--- NEW: The connection to the "Brain"
+redis_client = None
 
 # Initialize Traffic Inspector Logger
 request_logger = get_logger("traffic_inspector")
@@ -22,8 +23,7 @@ async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
     print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
     
-    # 2. Start Redis Client (for pushing logs) <--- NEW
-    # We use decode_responses=True so we get strings back, not bytes
+    # 2. Start Redis Client (for pushing logs)
     redis_client = redis.Redis(
         host=settings.REDIS_HOST, 
         port=settings.REDIS_PORT, 
@@ -72,25 +72,43 @@ async def proxy_request(path_name: str, request: Request):
         body_str = body.decode('utf-8')
     except:
         body_str = "[Binary Data]"
+
+    # =========================================================
+    # 🧠 AI SECURITY CHECK (Phase 3 Integration)
+    # =========================================================
+    # We ask the brain: "Is this safe?"
+    prediction = ai_engine.predict(url, request.method, body_str)
+    
+    if prediction == -1:
+        # LOG AND BLOCK IMMEDIATELY
+        request_logger.warning(f"⛔ AI BLOCKED ATTACK -> IP: {request.client.host} | Path: {url}")
         
-    # 3. Prepare the Log Entry (The Data Packet) <--- NEW
+        # We return a 403 Forbidden response and STOP here.
+        # The request never reaches the Java Victim or the Redis Logger.
+        return Response(
+            content='{"error": "Request blocked by AI Security Hunter"}',
+            status_code=403,
+            media_type="application/json"
+        )
+    # =========================================================
+        
+    # 3. Prepare the Log Entry (Only log if it wasn't blocked)
     log_entry = {
         "ip": request.client.host,
         "method": request.method,
         "path": url,
         "headers": dict(request.headers),
-        "body": body_str[:1000] # Truncate huge bodies to save space
+        "body": body_str[:1000] 
     }
     
-    # 4. PUSH to Redis Queue (Fire and Forget) <--- NEW
+    # 4. PUSH to Redis Queue
     if redis_client:
         try:
-            # We push to the 'Left' of the list (Queue)
             await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))
         except Exception as e:
             request_logger.error(f"Failed to push to Redis: {e}")
 
-    # Log to console as well (Optional, good for debugging)
+    # Log to console
     request_logger.info(f"Incoming -> IP: {request.client.host} | Body: {body_str[:100]}")
 
     try:
@@ -102,13 +120,12 @@ async def proxy_request(path_name: str, request: Request):
             content=body
         )
         
-        # 6. Return Raw Content (Handles Images/JSON/Text)
+        # 6. Return Raw Content
         return Response(
             content=upstream_response.content,
             status_code=upstream_response.status_code,
             media_type=upstream_response.headers.get("content-type")
         )
-    
         
     except httpx.RequestError as exc:
         return {"error": f"Connection to victim failed: {str(exc)}"}
