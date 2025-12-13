@@ -7,6 +7,8 @@ from .ai_engine import ai_engine  # <--- NEW: Import the Brain
 from .config import settings
 from .middleware import TimingMiddleware
 from .utils import get_logger
+import uuid  # <--- NEW
+from fastapi.responses import HTMLResponse # <--- NEW
 
 # Global Clients
 http_client = None
@@ -95,6 +97,32 @@ async def proxy_request(path_name: str, request: Request):
             media_type="application/json"
         )
     # =========================================================
+
+
+    if prediction == -1:
+    # Generate a unique ID for this event (Forensics)
+    request_id = str(uuid.uuid4())
+    client_ip = request.client.host
+
+    # Get the Score
+    risk_score = ai_engine.get_risk_score(url, request.method, body_str)
+
+    request_logger.warning(f"⛔ BLOCKED | ID: {request_id} | Score: {risk_score:.4f} | Path: {url}")
+
+    # Load the HTML Template
+    try:
+        with open("proxy/templates/blocked.html", "r") as f:
+            html_content = f.read()
+
+        # Inject Variables (Simple Search & Replace)
+        html_content = html_content.replace("{{client_ip}}", client_ip)
+        html_content = html_content.replace("{{request_id}}", request_id)
+
+        return HTMLResponse(content=html_content, status_code=403)
+
+    except FileNotFoundError:
+        # Fallback if HTML is missing
+        return Response(content='{"error": "Blocked"}', status_code=403)
         
     # 3. Prepare the Log Entry (Only log if it wasn't blocked)
     log_entry = {
