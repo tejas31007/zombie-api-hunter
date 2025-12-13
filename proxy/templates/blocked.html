@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⛔ Access Denied | Zombie Hunter</title>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .container {
+            border: 2px solid #ef4444;
+            padding: 40px;
+            border-radius: 8px;
+            background-color: #1e293b;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+            max-width: 500px;
+        }
+        h1 { color: #ef4444; font-size: 3rem; margin: 0; }
+        .icon { font-size: 5rem; margin-bottom: 20px; }
+        p { font-size: 1.1rem; line-height: 1.6; }
+        .meta {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #334155;
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+        .id-box {
+            background: #000;
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: #22c55e;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">🛡️</div>
+        <h1>BLOCKED</h1>
+        <p>Your request was flagged as malicious by the <strong>Zombie API Hunter</strong> AI Defense System.</p>
+        <p>Our neural network detected anomalous patterns in your traffic.</p>
+
+        <div class="meta">
+            <p>Client IP: <span class="id-box">{{client_ip}}</span></p>
+            <p>Ray ID: <span class="id-box">{{request_id}}</span></p>
+        </div>
+    </div>
+</body>
+</html>
