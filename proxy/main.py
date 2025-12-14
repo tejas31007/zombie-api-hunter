@@ -5,20 +5,22 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import httpx
+from .rate_limiter import RateLimiter 
 from .ai_engine import ai_engine
 from .config import settings
 from .middleware import TimingMiddleware
-from .utils import get_logger, load_template  # <--- Updated import
+from .utils import get_logger, load_template
 
 # Global Clients
 http_client = None
 redis_client = None
+rate_limiter = None  # <--- NEW: Initialize global variable
 
 request_logger = get_logger("traffic_inspector")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global http_client, redis_client
+    global http_client, redis_client, rate_limiter
     
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
     print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
@@ -30,6 +32,9 @@ async def lifespan(app: FastAPI):
     )
     print(f"🧠 Connected to Redis at {settings.REDIS_HOST}:{settings.REDIS_PORT}")
     
+    # Initialize Rate Limiter
+    rate_limiter = RateLimiter(redis_client)
+
     yield
     
     await http_client.aclose()
@@ -55,9 +60,24 @@ async def health_check():
 
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_request(path_name: str, request: Request):
-    global http_client, redis_client
+    global http_client, redis_client, rate_limiter
     url = f"/{path_name}"
     
+    # =========================================================
+    # 0. ⏳ RATE LIMIT CHECK (First Line of Defense)
+    # =========================================================
+    # We check this BEFORE anything else to save resources.
+    # Limit: 5 requests per 60 seconds (for testing).
+    is_allowed = await rate_limiter.is_allowed(request.client.host, limit=5, window=60)
+    
+    if not is_allowed:
+        return Response(
+            content='{"error": "Too Many Requests. Slow down!"}',
+            status_code=429,
+            media_type="application/json"
+        )
+    # =========================================================
+
     body = await request.body()
     try:
         body_str = body.decode('utf-8')
