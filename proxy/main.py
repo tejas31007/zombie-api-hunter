@@ -14,7 +14,7 @@ from .utils import get_logger, load_template
 # Global Clients
 http_client = None
 redis_client = None
-rate_limiter = None  # <--- NEW: Initialize global variable
+rate_limiter = None
 
 request_logger = get_logger("traffic_inspector")
 
@@ -22,9 +22,11 @@ request_logger = get_logger("traffic_inspector")
 async def lifespan(app: FastAPI):
     global http_client, redis_client, rate_limiter
     
+    # 1. Start HTTP Client
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
     print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
     
+    # 2. Start Redis Client
     redis_client = redis.Redis(
         host=settings.REDIS_HOST, 
         port=settings.REDIS_PORT, 
@@ -32,11 +34,12 @@ async def lifespan(app: FastAPI):
     )
     print(f"🧠 Connected to Redis at {settings.REDIS_HOST}:{settings.REDIS_PORT}")
     
-    # Initialize Rate Limiter
+    # 3. Initialize Rate Limiter
     rate_limiter = RateLimiter(redis_client)
 
     yield
     
+    # Shutdown
     await http_client.aclose()
     await redis_client.aclose()
     print("🔓 Hunter disconnected")
@@ -66,9 +69,12 @@ async def proxy_request(path_name: str, request: Request):
     # =========================================================
     # 0. ⏳ RATE LIMIT CHECK (First Line of Defense)
     # =========================================================
-    # We check this BEFORE anything else to save resources.
-    # Limit: 5 requests per 60 seconds (for testing).
-    is_allowed = await rate_limiter.is_allowed(request.client.host, limit=5, window=60)
+    # Check limit using settings from config.py
+    is_allowed = await rate_limiter.is_allowed(
+        request.client.host, 
+        limit=settings.RATE_LIMIT_COUNT, 
+        window=settings.RATE_LIMIT_WINDOW
+    )
     
     if not is_allowed:
         return Response(
@@ -78,6 +84,7 @@ async def proxy_request(path_name: str, request: Request):
         )
     # =========================================================
 
+    # 1. Capture Body
     body = await request.body()
     try:
         body_str = body.decode('utf-8')
@@ -90,15 +97,15 @@ async def proxy_request(path_name: str, request: Request):
     prediction = ai_engine.predict(url, request.method, body_str)
     
     if prediction == -1:
-        # 1. Generate Forensics Data
+        # Generate Forensics Data
         request_id = str(uuid.uuid4())
         client_ip = request.client.host
         
-        # 2. Get Score
+        # Get Score
         risk_score = ai_engine.get_risk_score(url, request.method, body_str)
         request_logger.warning(f"⛔ BLOCKED | ID: {request_id} | Score: {risk_score:.4f} | Path: {url}")
         
-        # 3. Load HTML Template
+        # Load HTML Template
         html_content = load_template("blocked.html", {
             "client_ip": client_ip,
             "request_id": request_id
@@ -107,7 +114,6 @@ async def proxy_request(path_name: str, request: Request):
         if html_content:
             return HTMLResponse(content=html_content, status_code=403)
         else:
-            # Fallback if HTML is missing
             return Response(
                 content='{"error": "Request blocked by AI Security Hunter"}',
                 status_code=403,
