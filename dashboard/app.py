@@ -53,6 +53,28 @@ if df.empty:
     st.warning("⚠️ No traffic data found yet. Send some requests!")
     st.stop()
 
+
+# --- SIDEBAR FILTERS ---
+    st.sidebar.header("🔍 Forensics Filters")
+    
+    # Filter by IP
+    all_ips = ["All"] + list(df['ip'].unique())
+    selected_ip = st.sidebar.selectbox("Filter by IP:", all_ips)
+
+    # Filter by Action
+    if 'action' in df.columns:
+        all_actions = ["All"] + list(df['action'].unique())
+        selected_action = st.sidebar.selectbox("Filter by Outcome:", all_actions)
+    else:
+        selected_action = "All"
+
+    # Apply Filters
+    if selected_ip != "All":
+        df = df[df['ip'] == selected_ip]
+    
+    if selected_action != "All":
+        df = df[df['action'] == selected_action]
+
 # --- KPI METRICS ---
 col1, col2, col3 = st.columns(3)
 
