@@ -75,14 +75,26 @@ st.markdown("---")
 col_left, col_right = st.columns(2)
 
 with col_left:
-    st.subheader("📊 Traffic by HTTP Method")
-    # Pie chart of GET vs POST vs DELETE
-    fig_method = px.pie(df, names='method', title='Request Distribution', hole=0.4)
-    st.plotly_chart(fig_method, use_container_width=True)
+    st.subheader("🛡️ Threat Detection Status")
+    # NEW: Visualize Blocked vs Allowed
+    if 'action' in df.columns:
+        fig_action = px.pie(
+            df, 
+            names='action', 
+            title='Blocked vs Allowed Traffic', 
+            color='action',
+            color_discrete_map={
+                'ALLOWED': '#22c55e',       # Green
+                'BLOCKED_AI': '#ef4444',    # Red
+                'BLOCKED_RATE': '#eab308'   # Yellow
+            }
+        )
+        st.plotly_chart(fig_action, use_container_width=True)
+    else:
+        st.info("Waiting for new telemetry data...")
 
 with col_right:
     st.subheader("🎯 Top Targeted Paths")
-    # Bar chart of paths
     path_counts = df['path'].value_counts().reset_index()
     path_counts.columns = ['Path', 'Count']
     fig_path = px.bar(path_counts, x='Count', y='Path', orientation='h', title='Most Hit Endpoints')
