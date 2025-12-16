@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # 1. The Brain (Database)
+  zombie-redis:
+    image: redis:alpine
+    container_name: zombie-redis
+    ports:
+      - "6379:6379"
+
+  # 2. The Hunter (Proxy)
+  hunter-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=zombie-redis
+      - TARGET_URL=http://host.docker.internal:8080
+    depends_on:
+      - zombie-redis
+
+  # 3. The Monitor (Dashboard)
+  war-room-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - REDIS_HOST=zombie-redis
+    depends_on:
+      - zombie-redis
