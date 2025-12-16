@@ -4,6 +4,7 @@ import redis
 import json
 import plotly.express as px
 import time
+import os  # <--- NEW IMPORT
 
 # --- CONFIGURATION ---
 st.set_page_config(
@@ -15,7 +16,9 @@ st.set_page_config(
 # Connect to Redis (The Brain Memory)
 @st.cache_resource
 def get_redis_client():
-    return redis.Redis(host='localhost', port=6379, decode_responses=True)
+    # NEW: Check for Docker environment variable. Default to localhost if missing.
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    return redis.Redis(host=redis_host, port=6379, decode_responses=True)
 
 try:
     r = get_redis_client()
@@ -33,10 +36,10 @@ def load_data():
     # Fetch all logs from the Redis list 'traffic_logs'
     # lrange(key, start, end) -> 0, -1 means "everything"
     raw_logs = r.lrange("traffic_logs", 0, -1)
-
+    
     if not raw_logs:
         return pd.DataFrame() # Empty if no data
-
+    
     # Parse JSON strings into a List of Dicts
     data = [json.loads(log) for log in raw_logs]
     df = pd.DataFrame(data)
@@ -53,27 +56,26 @@ if df.empty:
     st.warning("⚠️ No traffic data found yet. Send some requests!")
     st.stop()
 
-
 # --- SIDEBAR FILTERS ---
-    st.sidebar.header("🔍 Forensics Filters")
-    
-    # Filter by IP
-    all_ips = ["All"] + list(df['ip'].unique())
-    selected_ip = st.sidebar.selectbox("Filter by IP:", all_ips)
+st.sidebar.header("🔍 Forensics Filters")
 
-    # Filter by Action
-    if 'action' in df.columns:
-        all_actions = ["All"] + list(df['action'].unique())
-        selected_action = st.sidebar.selectbox("Filter by Outcome:", all_actions)
-    else:
-        selected_action = "All"
+# Filter by IP
+all_ips = ["All"] + list(df['ip'].unique())
+selected_ip = st.sidebar.selectbox("Filter by IP:", all_ips)
 
-    # Apply Filters
-    if selected_ip != "All":
-        df = df[df['ip'] == selected_ip]
-    
-    if selected_action != "All":
-        df = df[df['action'] == selected_action]
+# Filter by Action
+if 'action' in df.columns:
+    all_actions = ["All"] + list(df['action'].unique())
+    selected_action = st.sidebar.selectbox("Filter by Outcome:", all_actions)
+else:
+    selected_action = "All"
+
+# Apply Filters
+if selected_ip != "All":
+    df = df[df['ip'] == selected_ip]
+
+if selected_action != "All":
+    df = df[df['action'] == selected_action]
 
 # --- KPI METRICS ---
 col1, col2, col3 = st.columns(3)
@@ -124,4 +126,11 @@ with col_right:
 
 # --- RAW DATA TABLE ---
 st.subheader("📝 Recent Traffic Logs")
-st.dataframe(df[['ip', 'method', 'path', 'body']], use_container_width=True)
+# Ensure we display 'action' and 'timestamp' if they exist, otherwise fallback
+cols_to_show = ['ip', 'method', 'path', 'body']
+if 'action' in df.columns:
+    cols_to_show.insert(0, 'action')
+if 'timestamp' in df.columns:
+    cols_to_show.insert(0, 'timestamp')
+
+st.dataframe(df[cols_to_show], use_container_width=True)
