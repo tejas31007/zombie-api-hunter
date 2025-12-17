@@ -1,13 +1,19 @@
+# Stage 1: Builder
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Stage 2: Runtime
 FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the dashboard code
+# Copy installed packages
+COPY --from=builder /root/.local /root/.local
 COPY dashboard/ ./dashboard/
 
-# Command to run Streamlit
-# Streamlit runs on port 8501 by default
+ENV PATH=/root/.local/bin:$PATH
+
 CMD ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
