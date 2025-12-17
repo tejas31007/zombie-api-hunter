@@ -7,7 +7,11 @@ services:
     container_name: zombie-redis
     ports:
       - "6379:6379"
-
+  healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
   # 2. The Hunter (Proxy)
   hunter-proxy:
     build:
@@ -19,7 +23,8 @@ services:
       - REDIS_HOST=zombie-redis
       - TARGET_URL=http://host.docker.internal:8080
     depends_on:
-      - zombie-redis
+      zombie-redis:
+        condition: service_healthy
 
   # 3. The Monitor (Dashboard)
   war-room-dashboard:
@@ -31,4 +36,5 @@ services:
     environment:
       - REDIS_HOST=zombie-redis
     depends_on:
-      - zombie-redis
+      zombie-redis:
+        condition: service_healthy
