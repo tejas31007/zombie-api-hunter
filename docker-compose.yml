@@ -12,6 +12,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+    networks:
+      - hunter-net
   # 2. The Hunter (Proxy)
   hunter-proxy:
     build:
@@ -26,6 +29,9 @@ services:
       zombie-redis:
         condition: service_healthy
 
+
+  networks:
+      - hunter-net
   # 3. The Monitor (Dashboard)
   war-room-dashboard:
     build:
@@ -38,3 +44,10 @@ services:
     depends_on:
       zombie-redis:
         condition: service_healthy
+
+      networks:
+      - hunter-net
+
+      networks:
+  hunter-net:
+    driver: bridge
