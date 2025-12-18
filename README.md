@@ -9,11 +9,28 @@ A Zero-Trust Reverse Proxy powered by AI to protect Legacy APIs.
 4.  **Monitor:** Streamlit Real-time Dashboard.
 5.  **Target:** Vulnerable Java Spring Boot Application.
 
-## 🚀 Quick Start
-1.  **Start Redis:** `docker start zombie-redis`
-2.  **Start Victim:** `cd victim && mvn spring-boot:run`
-3.  **Start Proxy:** `uvicorn proxy.main:app --reload`
-4.  **Start Dashboard:** `streamlit run dashboard/app.py`
+## 🚀 Quick Start (Docker)
+
+The entire system (Brain, Hunter, Dashboard) is containerized for easy deployment.
+
+1.  **Start the System:**
+    ```bash
+    docker-compose up --build
+    ```
+2.  **Access Components:**
+    * **Dashboard:** [http://localhost:8501](http://localhost:8501)
+    * **Proxy API:** [http://localhost:8000](http://localhost:8000)
+3.  **Stop:**
+    ```bash
+    docker-compose down
+    ```
+
+## 🛠️ Manual Development
+If you want to run locally without Docker for debugging:
+1.  Start Redis: `docker run -p 6379:6379 redis`
+2.  Install Dev Tools: `pip install -r requirements-dev.txt`
+3.  Start Proxy: `uvicorn proxy.main:app --reload`
+4.  Start Dashboard: `streamlit run dashboard/app.py`
 
 ## 🧠 AI Engine
 * **Model:** Isolation Forest (Unsupervised Learning).
