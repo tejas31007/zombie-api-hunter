@@ -21,3 +21,13 @@ logs:
 # Clean up (remove stopped containers and networks)
 clean:
 	docker system prune -f
+
+# Format code (make it pretty)
+format:
+	black .
+	isort .
+
+# Check code (do not change, just check)
+lint:
+	black . --check
+	isort . --check-only
