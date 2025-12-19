@@ -1,5 +1,7 @@
 import os
+
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     # Target (The Java Victim)
@@ -13,10 +15,11 @@ class Settings(BaseSettings):
     REDIS_QUEUE_NAME: str = "traffic_logs"
 
     # Rate Limiting (The Speed Limit)
-    RATE_LIMIT_COUNT: int = 5       # Max requests
-    RATE_LIMIT_WINDOW: int = 60     # Per X seconds
+    RATE_LIMIT_COUNT: int = 5  # Max requests
+    RATE_LIMIT_WINDOW: int = 60  # Per X seconds
 
     class Config:
         env_file = ".env"
+
 
 settings = Settings()
