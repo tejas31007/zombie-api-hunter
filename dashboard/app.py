@@ -1,17 +1,15 @@
-import streamlit as st
-import pandas as pd
-import redis
 import json
-import plotly.express as px
-import time
 import os  # <--- NEW IMPORT
+import time
+
+import pandas as pd
+import plotly.express as px
+import redis
+import streamlit as st
 
 # --- CONFIGURATION ---
-st.set_page_config(
-    page_title="Zombie Hunter Dashboard",
-    page_icon="🛡️",
-    layout="wide"
-)
+st.set_page_config(page_title="Zombie Hunter Dashboard", page_icon="🛡️", layout="wide")
+
 
 # Connect to Redis (The Brain Memory)
 @st.cache_resource
@@ -19,6 +17,7 @@ def get_redis_client():
     # NEW: Check for Docker environment variable. Default to localhost if missing.
     redis_host = os.getenv("REDIS_HOST", "localhost")
     return redis.Redis(host=redis_host, port=6379, decode_responses=True)
+
 
 try:
     r = get_redis_client()
@@ -31,22 +30,24 @@ except redis.ConnectionError:
 st.title("🛡️ Zombie API Hunter | Live Traffic")
 st.markdown("Monitoring real-time traffic flow through the Python Proxy.")
 
+
 # --- DATA LOADING ---
 def load_data():
     # Fetch all logs from the Redis list 'traffic_logs'
     # lrange(key, start, end) -> 0, -1 means "everything"
     raw_logs = r.lrange("traffic_logs", 0, -1)
-    
+
     if not raw_logs:
-        return pd.DataFrame() # Empty if no data
-    
+        return pd.DataFrame()  # Empty if no data
+
     # Parse JSON strings into a List of Dicts
     data = [json.loads(log) for log in raw_logs]
     df = pd.DataFrame(data)
     return df
 
+
 # Refresh Button
-if st.button('🔄 Refresh Data'):
+if st.button("🔄 Refresh Data"):
     st.rerun()
 
 # Get Data
@@ -60,22 +61,22 @@ if df.empty:
 st.sidebar.header("🔍 Forensics Filters")
 
 # Filter by IP
-all_ips = ["All"] + list(df['ip'].unique())
+all_ips = ["All"] + list(df["ip"].unique())
 selected_ip = st.sidebar.selectbox("Filter by IP:", all_ips)
 
 # Filter by Action
-if 'action' in df.columns:
-    all_actions = ["All"] + list(df['action'].unique())
+if "action" in df.columns:
+    all_actions = ["All"] + list(df["action"].unique())
     selected_action = st.sidebar.selectbox("Filter by Outcome:", all_actions)
 else:
     selected_action = "All"
 
 # Apply Filters
 if selected_ip != "All":
-    df = df[df['ip'] == selected_ip]
+    df = df[df["ip"] == selected_ip]
 
 if selected_action != "All":
-    df = df[df['action'] == selected_action]
+    df = df[df["action"] == selected_action]
 
 # --- KPI METRICS ---
 col1, col2, col3 = st.columns(3)
@@ -85,12 +86,12 @@ with col1:
 
 with col2:
     # Count unique IPs
-    unique_ips = df['ip'].nunique()
+    unique_ips = df["ip"].nunique()
     st.metric("Unique Attackers (IPs)", unique_ips)
 
 with col3:
     # Most common path
-    top_path = df['path'].mode()[0] if not df.empty else "N/A"
+    top_path = df["path"].mode()[0] if not df.empty else "N/A"
     st.metric("Top Target Path", top_path)
 
 st.markdown("---")
@@ -101,17 +102,17 @@ col_left, col_right = st.columns(2)
 with col_left:
     st.subheader("🛡️ Threat Detection Status")
     # NEW: Visualize Blocked vs Allowed
-    if 'action' in df.columns:
+    if "action" in df.columns:
         fig_action = px.pie(
-            df, 
-            names='action', 
-            title='Blocked vs Allowed Traffic', 
-            color='action',
+            df,
+            names="action",
+            title="Blocked vs Allowed Traffic",
+            color="action",
             color_discrete_map={
-                'ALLOWED': '#22c55e',       # Green
-                'BLOCKED_AI': '#ef4444',    # Red
-                'BLOCKED_RATE': '#eab308'   # Yellow
-            }
+                "ALLOWED": "#22c55e",  # Green
+                "BLOCKED_AI": "#ef4444",  # Red
+                "BLOCKED_RATE": "#eab308",  # Yellow
+            },
         )
         st.plotly_chart(fig_action, use_container_width=True)
     else:
@@ -119,18 +120,20 @@ with col_left:
 
 with col_right:
     st.subheader("🎯 Top Targeted Paths")
-    path_counts = df['path'].value_counts().reset_index()
-    path_counts.columns = ['Path', 'Count']
-    fig_path = px.bar(path_counts, x='Count', y='Path', orientation='h', title='Most Hit Endpoints')
+    path_counts = df["path"].value_counts().reset_index()
+    path_counts.columns = ["Path", "Count"]
+    fig_path = px.bar(
+        path_counts, x="Count", y="Path", orientation="h", title="Most Hit Endpoints"
+    )
     st.plotly_chart(fig_path, use_container_width=True)
 
 # --- RAW DATA TABLE ---
 st.subheader("📝 Recent Traffic Logs")
 # Ensure we display 'action' and 'timestamp' if they exist, otherwise fallback
-cols_to_show = ['ip', 'method', 'path', 'body']
-if 'action' in df.columns:
-    cols_to_show.insert(0, 'action')
-if 'timestamp' in df.columns:
-    cols_to_show.insert(0, 'timestamp')
+cols_to_show = ["ip", "method", "path", "body"]
+if "action" in df.columns:
+    cols_to_show.insert(0, "action")
+if "timestamp" in df.columns:
+    cols_to_show.insert(0, "timestamp")
 
 st.dataframe(df[cols_to_show], use_container_width=True)
