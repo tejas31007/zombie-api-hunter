@@ -1,8 +1,8 @@
 import logging
 import os
+from typing import Dict, Any, Optional  # <--- Added strict types
 
-
-def get_logger(name: str):
+def get_logger(name: str) -> logging.Logger:  # <--- Added return type
     """
     Creates a standardized logger for the application.
     """
@@ -29,7 +29,7 @@ def get_logger(name: str):
     return logger
 
 
-def load_template(filename: str, replacements: dict):
+def load_template(filename: str, replacements: Dict[str, Any]) -> Optional[str]: # <--- Added explicit types
     """
     Loads an HTML file and replaces {{variables}} with actual values.
     """
