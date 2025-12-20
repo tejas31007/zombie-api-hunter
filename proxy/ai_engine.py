@@ -1,6 +1,7 @@
 import joblib
 import numpy as np
 import pandas as pd
+from typing import List, Any, Optional  # <--- NEW IMPORTS
 from sklearn.ensemble import IsolationForest
 
 from .utils import get_logger
@@ -10,11 +11,11 @@ logger = get_logger("ai_brain")
 
 
 class AIEngine:
-    def __init__(self):
-        self.model = None
+    def __init__(self) -> None:
+        self.model: Optional[Any] = None  # sklearn models are complex types
         self.load_model()
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Loads the trained .pkl model from disk."""
         try:
             self.model = joblib.load(MODEL_PATH)
@@ -23,7 +24,7 @@ class AIEngine:
             logger.error(f"❌ Failed to load AI Brain: {e}")
             self.model = None
 
-    def extract_features(self, path: str, method: str, body: str) -> list:
+    def extract_features(self, path: str, method: str, body: str) -> List[List[float]]: # <--- Explicit return type
         """
         Converts request data into the exact vector format the model expects.
         Must match feature_extractor.py logic!
@@ -45,8 +46,8 @@ class AIEngine:
         method_map = {"GET": 0, "POST": 1, "PUT": 2, "DELETE": 3}
         method_code = method_map.get(method.upper(), 0)
 
-        # Return as a 2D array (1 row, 5 columns)
-        return [[path_len, digit_count, special_count, body_len, method_code]]
+        # Return as a 2D array (1 row, 5 columns) - explicitly floats
+        return [[float(path_len), float(digit_count), float(special_count), float(body_len), float(method_code)]]
 
     def predict(self, path: str, method: str, body: str) -> int:
         """
@@ -62,12 +63,10 @@ class AIEngine:
         try:
             # We catch warnings about feature names since we pass a raw list
             prediction = self.model.predict(features)[0]
-            return prediction
+            return int(prediction)
         except Exception as e:
             logger.error(f"Prediction error: {e}")
             return 1  # Fail safe
-
-    # ... inside AIEngine class ...
 
     def get_risk_score(self, path: str, method: str, body: str) -> float:
         """
