@@ -32,7 +32,7 @@ async def log_request(
 
     log_entry = {
         "timestamp": datetime.datetime.now().isoformat(),
-        "ip": request.client.host,
+        "ip": request.client.host if request.client else "unknown",
         "method": request.method,
         "path": request.url.path,
         "headers": dict(request.headers),
@@ -42,7 +42,7 @@ async def log_request(
     }
 
     try:
-        await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))
+        await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))  # type: ignore
     except Exception as e:
         request_logger.error(f"Failed to push to Redis: {e}")
 

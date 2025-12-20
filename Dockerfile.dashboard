@@ -1,19 +1,22 @@
-# Stage 1: Builder
+# STAGE 1: Builder
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Stage 2: Runtime
+# STAGE 2: Runtime
 FROM python:3.11-slim
 
 WORKDIR /app
 
 # Copy installed packages
 COPY --from=builder /root/.local /root/.local
+
+# Copy dashboard code
 COPY dashboard/ ./dashboard/
 
+# Update PATH
 ENV PATH=/root/.local/bin:$PATH
 
 CMD ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]

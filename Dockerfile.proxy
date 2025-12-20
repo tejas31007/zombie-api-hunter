@@ -1,22 +1,24 @@
-# Stage 1: Builder
+# STAGE 1: Builder (Compilers and heavy tools)
 FROM python:3.11-slim as builder
 
 WORKDIR /app
 COPY requirements.txt .
-# Install dependencies into a temporary directory
+# Install dependencies to user directory
 RUN pip install --user --no-cache-dir -r requirements.txt
 
-# Stage 2: Runtime
+# STAGE 2: Runtime (Lightweight)
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy only the installed packages from the builder stage
+# Copy only the installed packages from builder
 COPY --from=builder /root/.local /root/.local
+
+# Copy source code
 COPY proxy/ ./proxy/
 COPY ml_engine/ ./ml_engine/
 
-# Ensure scripts are in PATH
+# Update PATH to use installed packages
 ENV PATH=/root/.local/bin:$PATH
 
 CMD ["uvicorn", "proxy.main:app", "--host", "0.0.0.0", "--port", "8000"]

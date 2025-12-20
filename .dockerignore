@@ -17,7 +17,7 @@ env/
 *.db
 *.sqlite3
 
-# Ignore Documentation
+# Ignore Documentation & Configs
 README.md
 docker-compose.yml
 Dockerfile*
