@@ -2,6 +2,7 @@ import datetime
 import json
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any, Optional  # <--- NEW IMPORT
 
 import httpx
 import redis.asyncio as redis
@@ -14,18 +15,17 @@ from .middleware import TimingMiddleware
 from .rate_limiter import RateLimiter
 from .utils import get_logger, load_template
 
-# Global Clients
-http_client = None
-redis_client = None
-rate_limiter = None
-
 request_logger = get_logger("traffic_inspector")
 
+# --- GLOBAL CLIENTS (Typed as Optional because they start as None) ---
+http_client: Optional[httpx.AsyncClient] = None
+redis_client: Optional[redis.Redis] = None
+rate_limiter: Optional[RateLimiter] = None
 
-# --- NEW HELPER FUNCTION (This saves lines of code!) ---
+
 async def log_request(
     request: Request, body_str: str, action: str, risk_score: float = 0.0
-):
+) -> None:  # <--- Added Return Type
     """Pushes a log entry to Redis with a timestamp and action tag."""
     if not redis_client:
         return
@@ -48,7 +48,7 @@ async def log_request(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> Any:  # <--- Added Return Type
     global http_client, redis_client, rate_limiter
 
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
@@ -61,8 +61,10 @@ async def lifespan(app: FastAPI):
 
     rate_limiter = RateLimiter(redis_client)
     yield
-    await http_client.aclose()
-    await redis_client.aclose()
+    if http_client:
+        await http_client.aclose()
+    if redis_client:
+        await redis_client.aclose()
     print("🔓 Hunter disconnected")
 
 
@@ -77,23 +79,28 @@ app.add_middleware(TimingMiddleware)
 
 
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy_request(path_name: str, request: Request):
+async def proxy_request(path_name: str, request: Request) -> Any:  # <--- Added Return Type
     global http_client, redis_client, rate_limiter
     url = f"/{path_name}"
+
+    # Ensure clients are ready (Mypy safety check)
+    if not rate_limiter or not http_client:
+        return Response("System initializing...", status_code=503)
 
     # =========================================================
     # 0. ⏳ RATE LIMIT CHECK
     # =========================================================
+    # Check if host is valid to prevent mypy error on 'None' host
+    client_host = request.client.host if request.client else "unknown"
+
     is_allowed = await rate_limiter.is_allowed(
-        request.client.host,
+        client_host,
         limit=settings.RATE_LIMIT_COUNT,
         window=settings.RATE_LIMIT_WINDOW,
     )
 
     if not is_allowed:
-        # LOG BEFORE BLOCKING
         await log_request(request, "[Rate Limited]", "BLOCKED_RATE", 0.0)
-
         return Response(
             content='{"error": "Too Many Requests. Slow down!"}',
             status_code=429,
@@ -104,7 +111,7 @@ async def proxy_request(path_name: str, request: Request):
     body = await request.body()
     try:
         body_str = body.decode("utf-8")
-    except:
+    except Exception:
         body_str = "[Binary Data]"
 
     # =========================================================
@@ -114,7 +121,6 @@ async def proxy_request(path_name: str, request: Request):
     risk_score = ai_engine.get_risk_score(url, request.method, body_str)
 
     if prediction == -1:
-        # LOG BEFORE BLOCKING
         await log_request(request, body_str, "BLOCKED_AI", risk_score)
 
         request_id = str(uuid.uuid4())
@@ -123,7 +129,7 @@ async def proxy_request(path_name: str, request: Request):
         )
 
         html_content = load_template(
-            "blocked.html", {"client_ip": request.client.host, "request_id": request_id}
+            "blocked.html", {"client_ip": client_host, "request_id": request_id}
         )
 
         if html_content:
@@ -135,7 +141,7 @@ async def proxy_request(path_name: str, request: Request):
     # =========================================================
     await log_request(request, body_str, "ALLOWED", risk_score)
 
-    request_logger.info(f"Forwarding -> IP: {request.client.host}")
+    request_logger.info(f"Forwarding -> IP: {client_host}")
 
     try:
         upstream_response = await http_client.request(
