@@ -1,56 +1,90 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
-from unittest.mock import MagicMock, AsyncMock
-# --- Add these imports at the top if missing ---
-from unittest.mock import patch
-# We import 'app' from main. If main.py doesn't exist yet, this will error (we fix that next).
-from main import app
+from unittest.mock import MagicMock, AsyncMock, patch
+from proxy.main import app
 
-# We will import the actual app later when we verify main.py exists
-# from main import app 
-
-# --- MOCK CLASSES ---
-# These simulate the dependencies so we can test the Proxy logic 
-# without needing a real Redis server or AI Engine running.
-
+# --- FIXTURE ---
 @pytest.fixture
-def mock_redis():
-    """Simulates Redis for Rate Limiting tests"""
-    mock = MagicMock()
-    # By default, allow everything (incr returns 1)
-    mock.incr = AsyncMock(return_value=1)
-    mock.expire = AsyncMock(return_value=True)
-    return mock
+def mock_dependencies():
+    """
+    Mocks the GLOBAL variables in proxy.main (http_client, rate_limiter, etc.)
+    so the app thinks it is fully connected and initialized.
+    """
+    # 1. Create Mocks
+    mock_ai = MagicMock()
+    mock_ai.predict = MagicMock(return_value=1) # Default: 1 (Safe)
+    mock_ai.get_risk_score = MagicMock(return_value=0.0)
 
-@pytest.fixture
-def mock_ai_engine():
-    """Simulates the AI Engine for Security tests"""
-    mock = MagicMock()
-    # By default, return 0.0 (Safe)
-    mock.predict_threat_score = AsyncMock(return_value=0.0)
-    return mock
+    mock_limiter = MagicMock()
+    mock_limiter.is_allowed = AsyncMock(return_value=True) # Default: Allowed
 
+    mock_http = AsyncMock() # Mock the HTTP Client
+
+    # 2. Patch the GLOBAL variables in proxy.main
+    # We set 'http_client' and 'rate_limiter' so the 503 check passes
+    with patch("proxy.main.ai_engine", mock_ai), \
+         patch("proxy.main.rate_limiter", mock_limiter), \
+         patch("proxy.main.http_client", mock_http), \
+         patch("proxy.main.settings") as mock_settings:
+        
+        # Configure Mock Settings
+        mock_settings.TARGET_URL = "http://mock-target"
+        mock_settings.RATE_LIMIT_COUNT = 5
+        mock_settings.RATE_LIMIT_WINDOW = 60
+        mock_settings.REDIS_QUEUE_NAME = "traffic_log"
+        
+        yield {
+            "ai": mock_ai,
+            "limiter": mock_limiter,
+            "http": mock_http,
+            "settings": mock_settings
+        }
+
+# --- TESTS ---
 
 @pytest.mark.asyncio
-async def test_block_sql_injection():
+async def test_block_sql_injection(mock_dependencies):
     """
-    Test 1: Security Block
-    Scenario: AI detects high threat score (0.85).
-    Expected: Proxy returns 403 Forbidden.
+    Test: Security Block
+    Scenario: AI predicts -1 (Anomaly)
+    Expected: 403 Forbidden
     """
-    # SETUP: We Mock the AI Engine to force it to say "This is Dangerous" (Score 0.85)
-    # The path 'proxy.ai_engine.AIEngine.predict_threat_score' must match where your class is.
-    with patch("proxy.ai_engine.AIEngine.predict_threat_score", return_value=0.85):
-        
-        # ACT: Use httpx to send a request to our app
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            # Send a fake SQL Injection payload
-            response = await client.get("/user?query=' OR 1=1")
-            
-            # ASSERT: Verify the Block
-            assert response.status_code == 403
-            # Optional: Check the error message (adjust based on your actual error message)
-            assert "blocked" in response.text.lower()
+    # 1. Force AI to say "Anomaly" (-1)
+    mock_dependencies["ai"].predict.return_value = -1 
+    mock_dependencies["ai"].get_risk_score.return_value = 0.95
 
-# --- SETUP COMPLETED ---
-# We are ready to write the actual tests in the next commits.
+    # 2. Run Request
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # We send a request that looks like an attack
+        response = await client.get("/user?query=' OR 1=1")
+        
+        # 3. Verify Block
+        assert response.status_code == 403
+        assert "blocked" in response.text.lower()
+
+@pytest.mark.asyncio
+async def test_allow_normal_traffic(mock_dependencies):
+    """
+    Test: Normal Traffic
+    Scenario: AI predicts 1 (Safe)
+    Expected: 200 OK (simulated by mocking the upstream call)
+    """
+    # 1. Force AI to say "Safe" (1)
+    mock_dependencies["ai"].predict.return_value = 1
+    
+    # 2. Configure the mock HTTP client to return a success response
+    mock_upstream_response = MagicMock()
+    mock_upstream_response.status_code = 200
+    mock_upstream_response.content = b'{"data": "success"}'
+    mock_upstream_response.headers = {"content-type": "application/json"}
+    
+    # When app calls http_client.request, return our mock response
+    mock_dependencies["http"].request.return_value = mock_upstream_response
+
+    # 3. Run Request
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/dashboard")
+        
+        # 4. Verify Allowed
+        assert response.status_code == 200
+        assert response.json() == {"data": "success"}
