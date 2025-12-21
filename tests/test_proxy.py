@@ -21,7 +21,6 @@ def mock_dependencies():
     mock_http = AsyncMock() # Mock the HTTP Client
 
     # 2. Patch the GLOBAL variables in proxy.main
-    # We set 'http_client' and 'rate_limiter' so the 503 check passes
     with patch("proxy.main.ai_engine", mock_ai), \
          patch("proxy.main.rate_limiter", mock_limiter), \
          patch("proxy.main.http_client", mock_http), \
@@ -88,3 +87,22 @@ async def test_allow_normal_traffic(mock_dependencies):
         # 4. Verify Allowed
         assert response.status_code == 200
         assert response.json() == {"data": "success"}
+
+@pytest.mark.asyncio
+async def test_rate_limit_exceeded(mock_dependencies):
+    """
+    Test: Rate Limiting
+    Scenario: RateLimiter returns False (Limit exceeded)
+    Expected: 429 Too Many Requests
+    """
+    # 1. Force RateLimiter to say "NOT Allowed"
+    # We access the mock limiter we created in the fixture
+    mock_dependencies["limiter"].is_allowed.return_value = False
+
+    # 2. Run Request
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/fast-request")
+        
+        # 3. Verify Rate Limit Block
+        assert response.status_code == 429
+        assert "Too Many Requests" in response.text
