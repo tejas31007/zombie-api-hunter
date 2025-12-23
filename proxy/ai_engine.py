@@ -1,92 +1,81 @@
 import joblib
-import numpy as np
-import pandas as pd
-from typing import List, Any, Optional  # <--- NEW IMPORTS
-from sklearn.ensemble import IsolationForest
-
+import os
+from typing import Any, Optional, List
 from .utils import get_logger
 
-MODEL_PATH = "ml_engine/model.pkl"
 logger = get_logger("ai_brain")
 
-
 class AIEngine:
-    def __init__(self) -> None:
-        self.model: Optional[Any] = None  # sklearn models are complex types
+    def __init__(self, model_version: str = "v1") -> None:
+        self.model_version = model_version
+        self.model: Optional[Any] = None
         self.load_model()
 
     def load_model(self) -> None:
-        """Loads the trained .pkl model from disk."""
+        """Loads the specific version of the model from the models/ directory."""
+        # DYNAMIC PATH: proxy/models/model_v1.pkl
+        model_path = f"proxy/models/model_{self.model_version}.pkl"
+        
         try:
-            self.model = joblib.load(MODEL_PATH)
-            logger.info(f"🧠 AI Brain loaded successfully from {MODEL_PATH}")
+            if os.path.exists(model_path):
+                self.model = joblib.load(model_path)
+                logger.info(f"🧠 AI Brain loaded: {model_path} (Version: {self.model_version})")
+            else:
+                logger.warning(f"⚠️ Model file not found: {model_path}. Running in Fail-Open mode.")
+                self.model = None
         except Exception as e:
             logger.error(f"❌ Failed to load AI Brain: {e}")
             self.model = None
 
-    def extract_features(self, path: str, method: str, body: str) -> List[List[float]]: # <--- Explicit return type
+    def _preprocess(self, path: str, method: str, body: str) -> List[str]:
         """
-        Converts request data into the exact vector format the model expects.
-        Must match feature_extractor.py logic!
+        Combines request parts into a single string for the AI Pipeline.
+        The new model (TfidfVectorizer) expects a list of strings.
         """
-        # 1. Path Length
-        path_len = len(path)
-
-        # 2. Digit Count
-        digit_count = sum(c.isdigit() for c in path)
-
-        # 3. Special Char Count
-        special_chars = set(["'", '"', "-", "<", ">", ";", "%", "(", ")"])
-        special_count = sum(1 for c in path if c in special_chars)
-
-        # 4. Body Length (Safe conversion)
-        body_len = len(body) if body else 0
-
-        # 5. Method Code (GET=0, POST=1, etc. - Simplified mapping)
-        method_map = {"GET": 0, "POST": 1, "PUT": 2, "DELETE": 3}
-        method_code = method_map.get(method.upper(), 0)
-
-        # Return as a 2D array (1 row, 5 columns) - explicitly floats
-        return [[float(path_len), float(digit_count), float(special_count), float(body_len), float(method_code)]]
+        # Example: "GET /dashboard user=admin"
+        full_request = f"{method} {path} {body}"
+        return [full_request]
 
     def predict(self, path: str, method: str, body: str) -> int:
         """
         Returns:
-            1  = Safe
-            -1 = Malicious (Anomaly)
+            1  = Safe (Allow)
+            -1 = Malicious (Block)
         """
         if not self.model:
-            return 1  # Fail safe: If no brain, let traffic through
+            return 1  # Fail open if no model
 
-        features = self.extract_features(path, method, body)
+        input_data = self._preprocess(path, method, body)
 
         try:
-            # We catch warnings about feature names since we pass a raw list
-            prediction = self.model.predict(features)[0]
-            return int(prediction)
+            # The Training Script used: 1=Attack, 0=Safe
+            # We need to map this to Proxy Logic: -1=Block, 1=Allow
+            prediction = self.model.predict(input_data)[0]
+            
+            if prediction == 1:
+                return -1 # BLOCK (It's an attack)
+            return 1      # ALLOW (It's safe)
+            
         except Exception as e:
             logger.error(f"Prediction error: {e}")
-            return 1  # Fail safe
+            return 1  # Fail open
 
     def get_risk_score(self, path: str, method: str, body: str) -> float:
         """
-        Returns the raw anomaly score.
-        Negative scores = Anomalies.
-        Positive scores = Normal.
-        The lower the score, the more abnormal the request is.
+        Returns probability of attack (0.0 to 1.0).
         """
         if not self.model:
             return 0.0
 
-        features = self.extract_features(path, method, body)
+        input_data = self._preprocess(path, method, body)
         try:
-            # decision_function returns the raw score
-            score = self.model.decision_function(features)[0]
-            return float(score)
-        except Exception as e:
-            logger.error(f"Scoring error: {e}")
+            # RandomForest supports predict_proba
+            # Returns [[prob_safe, prob_attack]]
+            probs = self.model.predict_proba(input_data)[0]
+            attack_prob = probs[1] 
+            return float(attack_prob)
+        except Exception:
             return 0.0
 
-
-# Global instance
-ai_engine = AIEngine()
+# Global instance defaults to v1
+ai_engine = AIEngine(model_version="v1")

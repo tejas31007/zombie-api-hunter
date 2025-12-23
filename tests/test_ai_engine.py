@@ -1,34 +1,53 @@
-from proxy.ai_engine import AIEngine
+import pytest
+from proxy.ai_engine import AIEngine, ai_engine
 
-def test_feature_extraction():
+def test_model_loading():
+    """Test that the model loads successfully (Version 1)."""
+    # The global instance should have loaded 'v1' by default
+    assert ai_engine.model is not None
+    assert ai_engine.model_version == "v1"
+
+def test_preprocess_logic():
+    """Test that requests are converted to text strings correctly."""
     engine = AIEngine()
     
-    # OLD: path = "SELECT * FROM users"  <-- '*' is not in our special_chars list!
-    # NEW: Use ';' which IS in the list
-    path = "SELECT ; FROM users"
+    # Input
+    path = "/login"
+    method = "POST"
+    body = "user=admin"
     
-    features = engine.extract_features(path, "GET", "")
-    vector = features[0]
+    # Process
+    result = engine._preprocess(path, method, body)
     
-    assert vector[0] == 19.0  # Path Length
-    assert vector[2] == 1.0   # Special Chars count (We found the ';')
+    # Expectation: A list containing one string combining all parts
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0] == "POST /login user=admin"
 
-def test_risk_score_simulation():
-    """If no model is loaded, it should default to safe (0.0 or 1)"""
+def test_predict_malicious():
+    """Test that a known attack string is blocked."""
     engine = AIEngine()
-    # Force model to None to test fail-safe
-    engine.model = None
+    
+    # A clear SQL Injection attack
+    path = "/search"
+    method = "GET"
+    body = "SELECT * FROM users"
+    
+    prediction = engine.predict(path, method, body)
+    
+    # Expectation: -1 (Block) because we trained it on this exact phrase
+    assert prediction == -1
 
-    score = engine.get_risk_score("/api/test", "GET", "")
-    assert score == 0.0
-
-def test_sql_injection_features():
+def test_predict_safe():
+    """Test that normal traffic is allowed."""
     engine = AIEngine()
-    # A classic attack: "' OR 1=1 --"
-    # Special chars: ' = 2, - = 2. Total = 4
-    path = "' OR 1=1 --"
-    features = engine.extract_features(path, "GET", "")
-    vector = features[0]
-
-    # Check special char count
-    assert vector[2] >= 1.0
+    
+    # A safe request
+    path = "/dashboard"
+    method = "GET"
+    body = ""
+    
+    prediction = engine.predict(path, method, body)
+    
+    # Expectation: 1 (Allow)
+    assert prediction == 1
