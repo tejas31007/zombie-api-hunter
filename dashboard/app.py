@@ -1,23 +1,31 @@
 import json
-import os  # <--- NEW IMPORT
+import os
 import time
-
+import sys
 import pandas as pd
 import plotly.express as px
 import redis
 import streamlit as st
 
+# --- PATH SETUP (To find 'proxy' folder) ---
+# This allows us to import from the sibling directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from proxy.config import settings
+from proxy.ai_engine import ai_engine  # <--- Import the Brain
+
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zombie Hunter Dashboard", page_icon="🛡️", layout="wide")
-
 
 # Connect to Redis (The Brain Memory)
 @st.cache_resource
 def get_redis_client():
-    # NEW: Check for Docker environment variable. Default to localhost if missing.
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    return redis.Redis(host=redis_host, port=6379, decode_responses=True)
-
+    # Use settings from config, fallback to localhost if needed
+    return redis.Redis(
+        host=settings.REDIS_HOST, 
+        port=settings.REDIS_PORT, 
+        decode_responses=True
+    )
 
 try:
     r = get_redis_client()
@@ -26,25 +34,45 @@ except redis.ConnectionError:
     st.error("🚨 Redis is DOWN! Start Docker: `docker start zombie-redis`")
     st.stop()
 
-# --- TITLE & HEADER ---
-st.title("🛡️ Zombie API Hunter | Live Traffic")
-st.markdown("Monitoring real-time traffic flow through the Python Proxy.")
+# --- SIDEBAR: AI STATUS (NEW SECTION) ---
+st.sidebar.title("🧟 Zombie Hunter")
+st.sidebar.markdown("Monitoring real-time traffic.")
+st.sidebar.markdown("---")
 
+st.sidebar.subheader("🧠 AI Brain Status")
+
+# Get info dynamically from the loaded model
+model_info = ai_engine.get_model_info()
+
+# Display Version and Author side-by-side
+col_s1, col_s2 = st.sidebar.columns(2)
+col_s1.metric("Version", model_info.get("version", "N/A"))
+col_s2.metric("Author", model_info.get("author", "Unknown"))
+
+# Display Algorithm and Date
+st.sidebar.info(f"**Algorithm:**\n{model_info.get('algorithm', 'Unknown')}")
+if 'trained_at' in model_info:
+    st.sidebar.caption(f"📅 Trained: {model_info['trained_at'][:10]}")
+
+st.sidebar.markdown("---")
+
+# --- SIDEBAR FILTERS ---
+st.sidebar.header("🔍 Forensics Filters")
 
 # --- DATA LOADING ---
 def load_data():
-    # Fetch all logs from the Redis list 'traffic_logs'
-    # lrange(key, start, end) -> 0, -1 means "everything"
-    raw_logs = r.lrange("traffic_logs", 0, -1)
-
+    raw_logs = r.lrange(settings.REDIS_QUEUE_NAME, 0, -1)
     if not raw_logs:
-        return pd.DataFrame()  # Empty if no data
-
-    # Parse JSON strings into a List of Dicts
-    data = [json.loads(log) for log in raw_logs]
-    df = pd.DataFrame(data)
-    return df
-
+        return pd.DataFrame() 
+    
+    data = []
+    for log in raw_logs:
+        try:
+            data.append(json.loads(log))
+        except json.JSONDecodeError:
+            continue
+            
+    return pd.DataFrame(data)
 
 # Refresh Button
 if st.button("🔄 Refresh Data"):
@@ -53,12 +81,12 @@ if st.button("🔄 Refresh Data"):
 # Get Data
 df = load_data()
 
+# --- MAIN CONTENT ---
+st.title("🛡️ Zombie API Hunter | Live Traffic")
+
 if df.empty:
     st.warning("⚠️ No traffic data found yet. Send some requests!")
     st.stop()
-
-# --- SIDEBAR FILTERS ---
-st.sidebar.header("🔍 Forensics Filters")
 
 # Filter by IP
 all_ips = ["All"] + list(df["ip"].unique())
@@ -85,12 +113,10 @@ with col1:
     st.metric("Total Requests", len(df))
 
 with col2:
-    # Count unique IPs
     unique_ips = df["ip"].nunique()
     st.metric("Unique Attackers (IPs)", unique_ips)
 
 with col3:
-    # Most common path
     top_path = df["path"].mode()[0] if not df.empty else "N/A"
     st.metric("Top Target Path", top_path)
 
@@ -101,7 +127,6 @@ col_left, col_right = st.columns(2)
 
 with col_left:
     st.subheader("🛡️ Threat Detection Status")
-    # NEW: Visualize Blocked vs Allowed
     if "action" in df.columns:
         fig_action = px.pie(
             df,
@@ -109,9 +134,9 @@ with col_left:
             title="Blocked vs Allowed Traffic",
             color="action",
             color_discrete_map={
-                "ALLOWED": "#22c55e",  # Green
-                "BLOCKED_AI": "#ef4444",  # Red
-                "BLOCKED_RATE": "#eab308",  # Yellow
+                "ALLOWED": "#22c55e",      # Green
+                "BLOCKED_AI": "#ef4444",   # Red
+                "BLOCKED_RATE": "#eab308", # Yellow
             },
         )
         st.plotly_chart(fig_action, use_container_width=True)
@@ -129,11 +154,13 @@ with col_right:
 
 # --- RAW DATA TABLE ---
 st.subheader("📝 Recent Traffic Logs")
-# Ensure we display 'action' and 'timestamp' if they exist, otherwise fallback
 cols_to_show = ["ip", "method", "path", "body"]
 if "action" in df.columns:
     cols_to_show.insert(0, "action")
 if "timestamp" in df.columns:
     cols_to_show.insert(0, "timestamp")
 
-st.dataframe(df[cols_to_show], use_container_width=True)
+st.dataframe(
+    df[cols_to_show].sort_values(by=cols_to_show[0] if "timestamp" in cols_to_show else "path", ascending=False), 
+    use_container_width=True
+)
