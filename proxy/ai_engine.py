@@ -90,4 +90,4 @@ class AIEngine:
         return {"version": "unknown", "description": "No metadata available"}
 
 # Global instance
-ai_engine = AIEngine(model_version="v1")
+ai_engine = AIEngine(model_version="v1")    

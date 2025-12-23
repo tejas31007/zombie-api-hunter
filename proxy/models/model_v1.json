@@ -1,0 +1,7 @@
+{
+    "version": "v1",
+    "algorithm": "RandomForest + TF-IDF",
+    "trained_at": "2025-12-23T11:08:08.649381",
+    "author": "Tejas",
+    "description": "Zombie API Hunter Security Model"
+}
