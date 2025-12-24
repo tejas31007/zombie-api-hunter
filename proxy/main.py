@@ -2,12 +2,13 @@ import datetime
 import json
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Optional  # <--- NEW IMPORT
+from typing import Any, Optional
 
 import httpx
 import redis.asyncio as redis
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel  # Moved to top for cleaner structure
 
 from .ai_engine import ai_engine
 from .config import settings
@@ -17,7 +18,7 @@ from .utils import get_logger, load_template
 
 request_logger = get_logger("traffic_inspector")
 
-# --- GLOBAL CLIENTS (Typed as Optional because they start as None) ---
+# --- GLOBAL CLIENTS ---
 http_client: Optional[httpx.AsyncClient] = None
 redis_client: Optional[redis.Redis] = None
 rate_limiter: Optional[RateLimiter] = None
@@ -25,7 +26,7 @@ rate_limiter: Optional[RateLimiter] = None
 
 async def log_request(
     request: Request, body_str: str, action: str, risk_score: float = 0.0
-) -> None:  # <--- Added Return Type
+) -> None:
     """Pushes a log entry to Redis with a timestamp and action tag."""
     if not redis_client:
         return
@@ -37,7 +38,7 @@ async def log_request(
         "path": request.url.path,
         "headers": dict(request.headers),
         "body": body_str[:1000],
-        "action": action,  # "BLOCKED_AI", "BLOCKED_RATE", or "ALLOWED"
+        "action": action,
         "risk_score": risk_score,
     }
 
@@ -48,7 +49,7 @@ async def log_request(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> Any:  # <--- Added Return Type
+async def lifespan(app: FastAPI) -> Any:
     global http_client, redis_client, rate_limiter
 
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
@@ -78,19 +79,55 @@ app = FastAPI(
 app.add_middleware(TimingMiddleware)
 
 
+# =========================================================
+# 📝 FEEDBACK SYSTEM (NEW)
+# =========================================================
+# This must be defined BEFORE the proxy catch-all route!
+
+class FeedbackRequest(BaseModel):
+    request_id: str
+    actual_label: str  # e.g., "safe", "malicious"
+    comments: str = ""
+
+@app.post("/feedback")
+async def submit_feedback(feedback: FeedbackRequest):
+    """
+    Receives user feedback on AI predictions and saves it to Redis.
+    """
+    if not redis_client:
+        return {"status": "error", "message": "Redis not connected"}
+
+    # Create a record of the mistake
+    feedback_entry = {
+        "request_id": feedback.request_id,
+        "actual_label": feedback.actual_label,
+        "comments": feedback.comments,
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+    # Push to a new Redis list: 'feedback_queue'
+    try:
+        await redis_client.lpush("feedback_queue", json.dumps(feedback_entry)) # type: ignore
+        print(f"📝 Feedback saved for {feedback.request_id}")
+        return {"status": "success", "message": "Feedback stored for retraining"}
+    except Exception as e:
+        print(f"❌ Failed to save feedback: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# =========================================================
+# 🚦 PROXY TRAFFIC HANDLER
+# =========================================================
+
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy_request(path_name: str, request: Request) -> Any:  # <--- Added Return Type
+async def proxy_request(path_name: str, request: Request) -> Any:
     global http_client, redis_client, rate_limiter
     url = f"/{path_name}"
 
-    # Ensure clients are ready (Mypy safety check)
     if not rate_limiter or not http_client:
         return Response("System initializing...", status_code=503)
 
-    # =========================================================
-    # 0. ⏳ RATE LIMIT CHECK
-    # =========================================================
-    # Check if host is valid to prevent mypy error on 'None' host
+    # 0. RATE LIMIT CHECK
     client_host = request.client.host if request.client else "unknown"
 
     is_allowed = await rate_limiter.is_allowed(
@@ -114,9 +151,7 @@ async def proxy_request(path_name: str, request: Request) -> Any:  # <--- Added 
     except Exception:
         body_str = "[Binary Data]"
 
-    # =========================================================
-    # 🧠 AI SECURITY CHECK
-    # =========================================================
+    # 2. AI SECURITY CHECK
     prediction = ai_engine.predict(url, request.method, body_str)
     risk_score = ai_engine.get_risk_score(url, request.method, body_str)
 
@@ -136,9 +171,7 @@ async def proxy_request(path_name: str, request: Request) -> Any:  # <--- Added 
             return HTMLResponse(content=html_content, status_code=403)
         return Response(content='{"error": "Blocked"}', status_code=403)
 
-    # =========================================================
-    # ✅ ALLOWED REQUEST
-    # =========================================================
+    # 3. ALLOWED REQUEST
     await log_request(request, body_str, "ALLOWED", risk_score)
 
     request_logger.info(f"Forwarding -> IP: {client_host}")
