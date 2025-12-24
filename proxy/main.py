@@ -96,7 +96,6 @@ async def submit_feedback(feedback: FeedbackRequest):
     """
     if not redis_client:
         return {"status": "error", "message": "Redis not connected"}
-
     # Create a record of the mistake
     feedback_entry = {
         "request_id": feedback.request_id,
