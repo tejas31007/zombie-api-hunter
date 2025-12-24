@@ -5,22 +5,21 @@ import sys
 import pandas as pd
 import plotly.express as px
 import redis
+import requests  # <--- NEW IMPORT: To send feedback to the Proxy API
 import streamlit as st
 
-# --- PATH SETUP (To find 'proxy' folder) ---
-# This allows us to import from the sibling directory
+# --- PATH SETUP ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from proxy.config import settings
-from proxy.ai_engine import ai_engine  # <--- Import the Brain
+from proxy.ai_engine import ai_engine
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zombie Hunter Dashboard", page_icon="🛡️", layout="wide")
 
-# Connect to Redis (The Brain Memory)
+# Connect to Redis
 @st.cache_resource
 def get_redis_client():
-    # Use settings from config, fallback to localhost if needed
     return redis.Redis(
         host=settings.REDIS_HOST, 
         port=settings.REDIS_PORT, 
@@ -34,25 +33,53 @@ except redis.ConnectionError:
     st.error("🚨 Redis is DOWN! Start Docker: `docker start zombie-redis`")
     st.stop()
 
-# --- SIDEBAR: AI STATUS (NEW SECTION) ---
+# --- SIDEBAR: AI STATUS ---
 st.sidebar.title("🧟 Zombie Hunter")
 st.sidebar.markdown("Monitoring real-time traffic.")
 st.sidebar.markdown("---")
 
 st.sidebar.subheader("🧠 AI Brain Status")
-
-# Get info dynamically from the loaded model
 model_info = ai_engine.get_model_info()
-
-# Display Version and Author side-by-side
 col_s1, col_s2 = st.sidebar.columns(2)
 col_s1.metric("Version", model_info.get("version", "N/A"))
 col_s2.metric("Author", model_info.get("author", "Unknown"))
-
-# Display Algorithm and Date
 st.sidebar.info(f"**Algorithm:**\n{model_info.get('algorithm', 'Unknown')}")
 if 'trained_at' in model_info:
     st.sidebar.caption(f"📅 Trained: {model_info['trained_at'][:10]}")
+
+st.sidebar.markdown("---")
+
+# --- SIDEBAR: FEEDBACK LOOP (NEW SECTION) ---
+st.sidebar.subheader("📝 Report Mistake")
+with st.sidebar.form("feedback_form"):
+    st.markdown("Found a False Positive?")
+    # Input for Request ID
+    req_id_input = st.text_input("Request ID (Copy from table)")
+    # Input for correct label
+    correct_label = st.selectbox("Actually was:", ["safe", "malicious"])
+    comments = st.text_area("Comments")
+    
+    submitted = st.form_submit_button("Submit Feedback")
+    
+    if submitted and req_id_input:
+        try:
+            # Send the feedback to the Proxy API
+            # We assume default localhost:8000 for the proxy
+            api_url = "http://localhost:8000/feedback"
+            payload = {
+                "request_id": req_id_input,
+                "actual_label": correct_label,
+                "comments": comments
+            }
+            
+            response = requests.post(api_url, json=payload)
+            
+            if response.status_code == 200:
+                st.success("✅ Feedback Sent! AI will learn from this.")
+            else:
+                st.error(f"❌ Failed: {response.text}")
+        except Exception as e:
+            st.error(f"❌ Error connecting to Proxy: {e}")
 
 st.sidebar.markdown("---")
 
@@ -68,7 +95,11 @@ def load_data():
     data = []
     for log in raw_logs:
         try:
-            data.append(json.loads(log))
+            entry = json.loads(log)
+            # Ensure request_id exists for the UI, even if older logs don't have it
+            if 'request_id' not in entry:
+                entry['request_id'] = "N/A"
+            data.append(entry)
         except json.JSONDecodeError:
             continue
             
@@ -154,11 +185,19 @@ with col_right:
 
 # --- RAW DATA TABLE ---
 st.subheader("📝 Recent Traffic Logs")
+st.caption("Copy the 'request_id' to report False Positives in the sidebar.")
+
+# Define columns to show (including request_id if available)
 cols_to_show = ["ip", "method", "path", "body"]
+
+# Insert dynamic columns if they exist
 if "action" in df.columns:
     cols_to_show.insert(0, "action")
 if "timestamp" in df.columns:
     cols_to_show.insert(0, "timestamp")
+# Add Request ID for the feedback loop
+if "request_id" in df.columns:
+    cols_to_show.insert(1, "request_id")
 
 st.dataframe(
     df[cols_to_show].sort_values(by=cols_to_show[0] if "timestamp" in cols_to_show else "path", ascending=False), 
