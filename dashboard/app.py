@@ -5,10 +5,11 @@ import sys
 import pandas as pd
 import plotly.express as px
 import redis
-import requests  # <--- NEW IMPORT: To send feedback to the Proxy API
+import requests  # To talk to the Proxy API
 import streamlit as st
 
 # --- PATH SETUP ---
+# Allows importing from the sibling 'proxy' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from proxy.config import settings
@@ -49,22 +50,34 @@ if 'trained_at' in model_info:
 
 st.sidebar.markdown("---")
 
-# --- SIDEBAR: FEEDBACK LOOP (NEW SECTION) ---
+# --- SIDEBAR: FEEDBACK LOOP ---
 st.sidebar.subheader("📝 Report Mistake")
+
+# 1. Initialize Session State for the form inputs
+if "fb_req_id" not in st.session_state:
+    st.session_state["fb_req_id"] = ""
+if "fb_comments" not in st.session_state:
+    st.session_state["fb_comments"] = ""
+
+# 2. Define the Clear Function
+def clear_form():
+    st.session_state["fb_req_id"] = ""
+    st.session_state["fb_comments"] = ""
+
+# 3. The Feedback Form
 with st.sidebar.form("feedback_form"):
     st.markdown("Found a False Positive?")
-    # Input for Request ID
-    req_id_input = st.text_input("Request ID (Copy from table)")
-    # Input for correct label
+    
+    # We bind these inputs to session_state using 'key'
+    req_id_input = st.text_input("Request ID (Copy from table)", key="fb_req_id")
     correct_label = st.selectbox("Actually was:", ["safe", "malicious"])
-    comments = st.text_area("Comments")
+    comments = st.text_area("Comments", key="fb_comments")
     
     submitted = st.form_submit_button("Submit Feedback")
     
     if submitted and req_id_input:
         try:
-            # Send the feedback to the Proxy API
-            # We assume default localhost:8000 for the proxy
+            # Send feedback to the Proxy API
             api_url = "http://localhost:8000/feedback"
             payload = {
                 "request_id": req_id_input,
@@ -75,11 +88,14 @@ with st.sidebar.form("feedback_form"):
             response = requests.post(api_url, json=payload)
             
             if response.status_code == 200:
-                st.success("✅ Feedback Sent! AI will learn from this.")
+                st.success("✅ Feedback Sent!")
             else:
                 st.error(f"❌ Failed: {response.text}")
         except Exception as e:
             st.error(f"❌ Error connecting to Proxy: {e}")
+
+# 4. Reset Button (Must be outside the form)
+st.sidebar.button("Reset Form", on_click=clear_form)
 
 st.sidebar.markdown("---")
 
@@ -96,7 +112,7 @@ def load_data():
     for log in raw_logs:
         try:
             entry = json.loads(log)
-            # Ensure request_id exists for the UI, even if older logs don't have it
+            # Ensure request_id exists for the UI
             if 'request_id' not in entry:
                 entry['request_id'] = "N/A"
             data.append(entry)
@@ -187,7 +203,7 @@ with col_right:
 st.subheader("📝 Recent Traffic Logs")
 st.caption("Copy the 'request_id' to report False Positives in the sidebar.")
 
-# Define columns to show (including request_id if available)
+# Define columns to show
 cols_to_show = ["ip", "method", "path", "body"]
 
 # Insert dynamic columns if they exist
@@ -195,7 +211,6 @@ if "action" in df.columns:
     cols_to_show.insert(0, "action")
 if "timestamp" in df.columns:
     cols_to_show.insert(0, "timestamp")
-# Add Request ID for the feedback loop
 if "request_id" in df.columns:
     cols_to_show.insert(1, "request_id")
 
