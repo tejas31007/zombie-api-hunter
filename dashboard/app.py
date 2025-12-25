@@ -1,6 +1,5 @@
 import json
 import os
-import time
 import sys
 import pandas as pd
 import plotly.express as px
@@ -28,8 +27,8 @@ def get_redis_client():
     )
 
 try:
-    r = get_redis_client()
-    r.ping()
+    redis_client = get_redis_client()
+    redis_client.ping()
 except redis.ConnectionError:
     st.error("🚨 Redis is DOWN! Start Docker: `docker start zombie-redis`")
     st.stop()
@@ -41,9 +40,11 @@ st.sidebar.markdown("---")
 
 st.sidebar.subheader("🧠 AI Brain Status")
 model_info = ai_engine.get_model_info()
-col_s1, col_s2 = st.sidebar.columns(2)
-col_s1.metric("Version", model_info.get("version", "N/A"))
-col_s2.metric("Author", model_info.get("author", "Unknown"))
+
+version_col, author_col = st.sidebar.columns(2)
+version_col.metric("Version", model_info.get("version", "N/A"))
+author_col.metric("Author", model_info.get("author", "Unknown"))
+
 st.sidebar.info(f"**Algorithm:**\n{model_info.get('algorithm', 'Unknown')}")
 if 'trained_at' in model_info:
     st.sidebar.caption(f"📅 Trained: {model_info['trained_at'][:10]}")
@@ -53,22 +54,19 @@ st.sidebar.markdown("---")
 # --- SIDEBAR: FEEDBACK LOOP ---
 st.sidebar.subheader("📝 Report Mistake")
 
-# 1. Initialize Session State for the form inputs
+# Initialize Session State
 if "fb_req_id" not in st.session_state:
     st.session_state["fb_req_id"] = ""
 if "fb_comments" not in st.session_state:
     st.session_state["fb_comments"] = ""
 
-# 2. Define the Clear Function
 def clear_form():
     st.session_state["fb_req_id"] = ""
     st.session_state["fb_comments"] = ""
 
-# 3. The Feedback Form
 with st.sidebar.form("feedback_form"):
     st.markdown("Found a False Positive?")
     
-    # We bind these inputs to session_state using 'key'
     req_id_input = st.text_input("Request ID (Copy from table)", key="fb_req_id")
     correct_label = st.selectbox("Actually was:", ["safe", "malicious"])
     comments = st.text_area("Comments", key="fb_comments")
@@ -77,7 +75,6 @@ with st.sidebar.form("feedback_form"):
     
     if submitted and req_id_input:
         try:
-            # Send feedback to the Proxy API
             api_url = "http://localhost:8000/feedback"
             payload = {
                 "request_id": req_id_input,
@@ -94,9 +91,7 @@ with st.sidebar.form("feedback_form"):
         except Exception as e:
             st.error(f"❌ Error connecting to Proxy: {e}")
 
-# 4. Reset Button (Must be outside the form)
 st.sidebar.button("Reset Form", on_click=clear_form)
-
 st.sidebar.markdown("---")
 
 # --- SIDEBAR FILTERS ---
@@ -104,7 +99,7 @@ st.sidebar.header("🔍 Forensics Filters")
 
 # --- DATA LOADING ---
 def load_data():
-    raw_logs = r.lrange(settings.REDIS_QUEUE_NAME, 0, -1)
+    raw_logs = redis_client.lrange(settings.REDIS_QUEUE_NAME, 0, -1)
     if not raw_logs:
         return pd.DataFrame() 
     
@@ -121,11 +116,9 @@ def load_data():
             
     return pd.DataFrame(data)
 
-# Refresh Button
 if st.button("🔄 Refresh Data"):
     st.rerun()
 
-# Get Data
 df = load_data()
 
 # --- MAIN CONTENT ---
@@ -135,18 +128,16 @@ if df.empty:
     st.warning("⚠️ No traffic data found yet. Send some requests!")
     st.stop()
 
-# Filter by IP
+# Filter Logic
 all_ips = ["All"] + list(df["ip"].unique())
 selected_ip = st.sidebar.selectbox("Filter by IP:", all_ips)
 
-# Filter by Action
 if "action" in df.columns:
     all_actions = ["All"] + list(df["action"].unique())
     selected_action = st.sidebar.selectbox("Filter by Outcome:", all_actions)
 else:
     selected_action = "All"
 
-# Apply Filters
 if selected_ip != "All":
     df = df[df["ip"] == selected_ip]
 
@@ -154,25 +145,25 @@ if selected_action != "All":
     df = df[df["action"] == selected_action]
 
 # --- KPI METRICS ---
-col1, col2, col3 = st.columns(3)
+m_col1, m_col2, m_col3 = st.columns(3)
 
-with col1:
+with m_col1:
     st.metric("Total Requests", len(df))
 
-with col2:
+with m_col2:
     unique_ips = df["ip"].nunique()
     st.metric("Unique Attackers (IPs)", unique_ips)
 
-with col3:
+with m_col3:
     top_path = df["path"].mode()[0] if not df.empty else "N/A"
     st.metric("Top Target Path", top_path)
 
 st.markdown("---")
 
 # --- CHARTS ---
-col_left, col_right = st.columns(2)
+chart_col1, chart_col2 = st.columns(2)
 
-with col_left:
+with chart_col1:
     st.subheader("🛡️ Threat Detection Status")
     if "action" in df.columns:
         fig_action = px.pie(
@@ -181,16 +172,16 @@ with col_left:
             title="Blocked vs Allowed Traffic",
             color="action",
             color_discrete_map={
-                "ALLOWED": "#22c55e",      # Green
-                "BLOCKED_AI": "#ef4444",   # Red
-                "BLOCKED_RATE": "#eab308", # Yellow
+                "ALLOWED": "#22c55e",       # Green
+                "BLOCKED_AI": "#ef4444",    # Red
+                "BLOCKED_RATE": "#eab308",  # Yellow
             },
         )
         st.plotly_chart(fig_action, use_container_width=True)
     else:
         st.info("Waiting for new telemetry data...")
 
-with col_right:
+with chart_col2:
     st.subheader("🎯 Top Targeted Paths")
     path_counts = df["path"].value_counts().reset_index()
     path_counts.columns = ["Path", "Count"]
@@ -203,10 +194,8 @@ with col_right:
 st.subheader("📝 Recent Traffic Logs")
 st.caption("Copy the 'request_id' to report False Positives in the sidebar.")
 
-# Define columns to show
 cols_to_show = ["ip", "method", "path", "body"]
 
-# Insert dynamic columns if they exist
 if "action" in df.columns:
     cols_to_show.insert(0, "action")
 if "timestamp" in df.columns:
