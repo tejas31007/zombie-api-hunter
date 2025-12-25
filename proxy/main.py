@@ -8,7 +8,7 @@ import httpx
 import redis.asyncio as redis
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel  # Moved to top for cleaner structure
+from pydantic import BaseModel
 
 from .ai_engine import ai_engine
 from .config import settings
@@ -25,9 +25,11 @@ rate_limiter: Optional[RateLimiter] = None
 
 
 async def log_request(
-    request: Request, body_str: str, action: str, risk_score: float = 0.0
+    request: Request, payload_text: str, action_taken: str, risk_score: float = 0.0
 ) -> None:
-    """Pushes a log entry to Redis with a timestamp and action tag."""
+    """
+    Pushes a structured log entry to Redis for the Dashboard to consume.
+    """
     if not redis_client:
         return
 
@@ -37,13 +39,14 @@ async def log_request(
         "method": request.method,
         "path": request.url.path,
         "headers": dict(request.headers),
-        "body": body_str[:1000],
-        "action": action,
+        "body": payload_text[:1000],  # Truncate for performance
+        "action": action_taken,       # e.g., "BLOCKED_AI", "ALLOWED"
         "risk_score": risk_score,
+        "request_id": str(uuid.uuid4()) # Ensure every log has an ID
     }
 
     try:
-        await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))  # type: ignore
+        await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))
     except Exception as e:
         request_logger.error(f"Failed to push to Redis: {e}")
 
@@ -52,16 +55,21 @@ async def log_request(
 async def lifespan(app: FastAPI) -> Any:
     global http_client, redis_client, rate_limiter
 
+    # Initialize HTTP Client for talking to the Victim API
     http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
     print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
 
+    # Initialize Redis for Logs and Rate Limiting
     redis_client = redis.Redis(
         host=settings.REDIS_HOST, port=settings.REDIS_PORT, decode_responses=True
     )
     print(f"🧠 Connected to Redis at {settings.REDIS_HOST}:{settings.REDIS_PORT}")
 
     rate_limiter = RateLimiter(redis_client)
+    
     yield
+    
+    # Cleanup
     if http_client:
         await http_client.aclose()
     if redis_client:
@@ -80,9 +88,8 @@ app.add_middleware(TimingMiddleware)
 
 
 # =========================================================
-# 📝 FEEDBACK SYSTEM (NEW)
+# 📝 FEEDBACK SYSTEM
 # =========================================================
-# This must be defined BEFORE the proxy catch-all route!
 
 class FeedbackRequest(BaseModel):
     request_id: str
@@ -90,24 +97,23 @@ class FeedbackRequest(BaseModel):
     comments: str = ""
 
 @app.post("/feedback")
-async def submit_feedback(feedback: FeedbackRequest):
+async def submit_feedback(user_feedback: FeedbackRequest):
     """
-    Receives user feedback on AI predictions and saves it to Redis.
+    Receives user feedback on AI predictions (False Positives/Negatives).
     """
     if not redis_client:
         return {"status": "error", "message": "Redis not connected"}
-    # Create a record of the mistake
+
     feedback_entry = {
-        "request_id": feedback.request_id,
-        "actual_label": feedback.actual_label,
-        "comments": feedback.comments,
+        "request_id": user_feedback.request_id,
+        "actual_label": user_feedback.actual_label,
+        "comments": user_feedback.comments,
         "timestamp": datetime.datetime.now().isoformat()
     }
 
-    # Push to a new Redis list: 'feedback_queue'
     try:
-        await redis_client.lpush("feedback_queue", json.dumps(feedback_entry)) # type: ignore
-        print(f"📝 Feedback saved for {feedback.request_id}")
+        await redis_client.lpush("feedback_queue", json.dumps(feedback_entry))
+        print(f"📝 Feedback saved for {user_feedback.request_id}")
         return {"status": "success", "message": "Feedback stored for retraining"}
     except Exception as e:
         print(f"❌ Failed to save feedback: {e}")
@@ -118,66 +124,83 @@ async def submit_feedback(feedback: FeedbackRequest):
 # 🚦 PROXY TRAFFIC HANDLER
 # =========================================================
 
-@app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy_request(path_name: str, request: Request) -> Any:
+@app.api_route("/{captured_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_request(captured_path: str, incoming_request: Request) -> Any:
+    """
+    Main pipeline: Intercept -> Rate Limit -> AI Scan -> Forward/Block
+    """
     global http_client, redis_client, rate_limiter
-    url = f"/{path_name}"
+    
+    target_endpoint = f"/{captured_path}"
 
     if not rate_limiter or not http_client:
         return Response("System initializing...", status_code=503)
 
+    # ---------------------------------------------------------
     # 0. RATE LIMIT CHECK
-    client_host = request.client.host if request.client else "unknown"
+    # ---------------------------------------------------------
+    client_ip = incoming_request.client.host if incoming_request.client else "unknown"
 
     is_allowed = await rate_limiter.is_allowed(
-        client_host,
+        client_ip,
         limit=settings.RATE_LIMIT_COUNT,
         window=settings.RATE_LIMIT_WINDOW,
     )
 
     if not is_allowed:
-        await log_request(request, "[Rate Limited]", "BLOCKED_RATE", 0.0)
+        await log_request(incoming_request, "[Rate Limited]", "BLOCKED_RATE", 0.0)
         return Response(
             content='{"error": "Too Many Requests. Slow down!"}',
             status_code=429,
             media_type="application/json",
         )
 
-    # 1. Capture Body
-    body = await request.body()
+    # ---------------------------------------------------------
+    # 1. DATA CAPTURE
+    # ---------------------------------------------------------
+    raw_body_bytes = await incoming_request.body()
     try:
-        body_str = body.decode("utf-8")
+        decoded_payload = raw_body_bytes.decode("utf-8")
     except Exception:
-        body_str = "[Binary Data]"
+        decoded_payload = "[Binary Data]"
 
+    # ---------------------------------------------------------
     # 2. AI SECURITY CHECK
-    prediction = ai_engine.predict(url, request.method, body_str)
-    risk_score = ai_engine.get_risk_score(url, request.method, body_str)
+    # ---------------------------------------------------------
+    # Prediction: 1 = Allow, -1 = Block
+    security_verdict = ai_engine.predict(target_endpoint, incoming_request.method, decoded_payload)
+    threat_probability = ai_engine.get_risk_score(target_endpoint, incoming_request.method, decoded_payload)
 
-    if prediction == -1:
-        await log_request(request, body_str, "BLOCKED_AI", risk_score)
+    if security_verdict == -1:
+        # LOG AND BLOCK
+        await log_request(incoming_request, decoded_payload, "BLOCKED_AI", threat_probability)
 
-        request_id = str(uuid.uuid4())
+        block_id = str(uuid.uuid4())
         request_logger.warning(
-            f"⛔ BLOCKED | ID: {request_id} | Score: {risk_score:.4f} | Path: {url}"
+            f"⛔ BLOCKED | ID: {block_id} | Score: {threat_probability:.4f} | Path: {target_endpoint}"
         )
 
         html_content = load_template(
-            "blocked.html", {"client_ip": client_host, "request_id": request_id}
+            "blocked.html", {"client_ip": client_ip, "request_id": block_id}
         )
 
         if html_content:
             return HTMLResponse(content=html_content, status_code=403)
-        return Response(content='{"error": "Blocked"}', status_code=403)
+        return Response(content='{"error": "Blocked by Zombie Hunter"}', status_code=403)
 
-    # 3. ALLOWED REQUEST
-    await log_request(request, body_str, "ALLOWED", risk_score)
+    # ---------------------------------------------------------
+    # 3. FORWARD TO UPSTREAM (VICTIM API)
+    # ---------------------------------------------------------
+    await log_request(incoming_request, decoded_payload, "ALLOWED", threat_probability)
 
-    request_logger.info(f"Forwarding -> IP: {client_host}")
+    request_logger.info(f"Forwarding -> IP: {client_ip}")
 
     try:
         upstream_response = await http_client.request(
-            method=request.method, url=url, params=request.query_params, content=body
+            method=incoming_request.method, 
+            url=target_endpoint, 
+            params=incoming_request.query_params, 
+            content=raw_body_bytes
         )
 
         return Response(
