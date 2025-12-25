@@ -37,6 +37,19 @@ If you want to run locally without Docker for debugging:
 * **Features:** Path Length, Special Char Count, SQL Keywords, Entropy.
 * **Training:** Self-learning based on "Normal" traffic patterns.
 
+
+## System Architecture
+
+```mermaid
+graph TD
+    User([User]) -->|Interacts| UI[Dashboard (app.py)]
+    UI -->|Sends API Specs| AI[AI Engine (ai_engine.py)]
+    AI -->|Scans & Probes| Target[Target API]
+    Target -->|Returns Responses| AI
+    AI -->|Calculates Zombie Score| Logic{Anomaly Detection}
+    Logic -->|Results| UI
+
+
 ## 👤 Author
 **Tejas Samir Alawani**
 *Dept. of Computer Science & Engineering*
