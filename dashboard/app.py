@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import subprocess  # <--- Added for running the retrain script
 import pandas as pd
 import plotly.express as px
 import redis
@@ -93,6 +94,35 @@ with st.sidebar.form("feedback_form"):
 
 st.sidebar.button("Reset Form", on_click=clear_form)
 st.sidebar.markdown("---")
+
+# --- SIDEBAR: ADMIN CONTROLS (NEW) ---
+st.sidebar.subheader("⚙️ Admin Controls")
+if st.sidebar.button("🚀 Retrain Model (v2)"):
+    with st.spinner("Retraining AI Brain... this may take a moment."):
+        try:
+            # Run the retrain script
+            # We use 'python' assuming it's in the path, or 'python3' depending on your OS
+            result = subprocess.run(
+                ["python", "ml_engine/retrain.py"], 
+                capture_output=True, 
+                text=True
+            )
+            
+            if result.returncode == 0:
+                st.sidebar.success("✅ Retrained Successfully!")
+                # Show the output logs in a small expander
+                with st.sidebar.expander("See Logs"):
+                    st.text(result.stdout)
+            else:
+                st.sidebar.error("❌ Retraining Failed")
+                with st.sidebar.expander("See Error"):
+                    st.text(result.stderr)
+                    
+        except Exception as e:
+            st.sidebar.error(f"Error launching script: {e}")
+
+st.sidebar.markdown("---")
+
 
 # --- SIDEBAR FILTERS ---
 st.sidebar.header("🔍 Forensics Filters")
