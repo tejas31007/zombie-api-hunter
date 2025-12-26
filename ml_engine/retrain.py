@@ -70,3 +70,63 @@ def fetch_feedback_data(r_client):
                 print(f"   -> Found new training sample: {req_id}")
 
     return new_safe_requests
+
+
+def retrain_model():
+    print(f"🚀 Starting Retraining Process ({NEW_VERSION})...")
+    r = get_redis_client()
+
+    # 1. Load Original Data (Prevent Catastrophic Forgetting)
+    if os.path.exists(ORIGINAL_DATA_PATH):
+        df = pd.read_csv(ORIGINAL_DATA_PATH)
+        # Assuming CSV has 'method', 'path', 'body'
+        # We combine them into a single string column for the vectorizer
+        base_data = (df['method'] + " " + df['url'] + " " + df['body']).tolist()
+        print(f"✅ Loaded {len(base_data)} original samples.")
+    else:
+        print("⚠️ Original dataset not found. Starting empty (Risky!)")
+        base_data = []
+
+    # 2. Fetch New Data from Feedback
+    new_data = fetch_feedback_data(r)
+    print(f"✅ Loaded {len(new_data)} new samples from feedback.")
+
+    if not new_data and not base_data:
+        print("❌ No data to train on. Aborting.")
+        return
+
+    # 3. Combine Data
+    training_data = base_data + new_data
+
+    # 4. Train Pipeline (Vectorizer + Isolation Forest)
+    # Using HashingVectorizer for fixed memory usage
+    model_pipeline = Pipeline([
+        ("vectorizer", HashingVectorizer(n_features=1000, norm=None)),
+        ("anomaly_detector", IsolationForest(contamination=0.05, random_state=42))
+    ])
+
+    print("🧠 Fitting model...")
+    model_pipeline.fit(training_data)
+
+    # 5. Save Model
+    model_path = os.path.join(MODEL_DIR, f"model_{NEW_VERSION}.pkl")
+    joblib.dump(model_pipeline, model_path)
+    print(f"💾 Model saved to {model_path}")
+
+    # 6. Save Metadata
+    meta = ModelMetadata(
+        version=NEW_VERSION,
+        algorithm="IsolationForest + HashingVectorizer",
+        author="ZombieHunter Auto-Retrain",
+        accuracy=0.95, # Placeholder
+        trained_at=datetime.datetime.now().isoformat()
+    )
+    
+    meta_path = os.path.join(MODEL_DIR, f"model_{NEW_VERSION}.json")
+    with open(meta_path, "w") as f:
+        json.dump(meta.model_dump(), f)
+    
+    print("✅ Retraining Complete! Update AI Engine version to apply.")
+
+if __name__ == "__main__":
+    retrain_model()
