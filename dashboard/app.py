@@ -156,6 +156,22 @@ def load_data():
         
     return df
 
+
+# Helper for Commit 3
+def mock_geoip(ip_address):
+    """
+    Deterministically generates a fake Lat/Lon based on the IP string.
+    Real production apps would use a GeoIP database here.
+    """
+    # Simple hash of the IP to get numbers
+    hash_val = hash(ip_address)
+    # Map hash to valid Lat (-90 to 90) and Lon (-180 to 180)
+    lat = (hash_val % 180) - 90
+    lon = (hash_val % 360) - 180
+    return lat, lon
+
+
+
 # --- MAIN CONTENT ---
 st.title("🛡️ Zombie API Hunter | Live Traffic")
 
@@ -274,3 +290,16 @@ st.dataframe(
     df[cols_to_show].sort_values(by=cols_to_show[0] if "timestamp" in cols_to_show else "path", ascending=False), 
     use_container_width=True
 )
+
+
+# --- ATTACK MAP (Commit 3) ---
+st.subheader("🌍 Live Attack Map")
+if not df.empty:
+    # Create new columns for lat/lon
+    # Apply the mock function to every IP in the dataframe
+    coords = df['ip'].apply(mock_geoip)
+    df['lat'] = coords.apply(lambda x: x[0])
+    df['lon'] = coords.apply(lambda x: x[1])
+
+    # Display the map
+    st.map(df, latitude='lat', longitude='lon', size=20, color='#FF0000')
