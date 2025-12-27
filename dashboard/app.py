@@ -137,19 +137,24 @@ def load_data():
     for log in raw_logs:
         try:
             entry = json.loads(log)
-            # Ensure request_id exists for the UI
+            # Ensure request_id exists
             if 'request_id' not in entry:
                 entry['request_id'] = "N/A"
+            
+            # NEW: Ensure risk_score is float (handle missing values)
+            entry['risk_score'] = float(entry.get('risk_score', 0.0))
+            
             data.append(entry)
         except json.JSONDecodeError:
             continue
             
-    return pd.DataFrame(data)
-
-if st.button("🔄 Refresh Data"):
-    st.rerun()
-
-df = load_data()
+    df = pd.DataFrame(data)
+    
+    # NEW: Convert timestamp to datetime objects
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+    return df
 
 # --- MAIN CONTENT ---
 st.title("🛡️ Zombie API Hunter | Live Traffic")
@@ -189,6 +194,24 @@ with m_col3:
     st.metric("Top Target Path", top_path)
 
 st.markdown("---")
+
+
+# --- TIME SERIES CHART (Commit 1) ---
+st.subheader("📈 Traffic Velocity (Requests/Minute)")
+if not df.empty and 'timestamp' in df.columns:
+    # Resample data by minute to count requests
+    # Set timestamp as index temporarily for resampling
+    ts_df = df.set_index('timestamp').resample('1T').size().reset_index(name='requests')
+    
+    fig_time = px.area(
+        ts_df, 
+        x='timestamp', 
+        y='requests',
+        template="plotly_dark",
+        color_discrete_sequence=["#00FF00"] # Hacker Green
+    )
+    st.plotly_chart(fig_time, use_container_width=True)
+
 
 # --- CHARTS ---
 chart_col1, chart_col2 = st.columns(2)
