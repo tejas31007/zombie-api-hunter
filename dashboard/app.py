@@ -18,6 +18,30 @@ from proxy.ai_engine import ai_engine
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zombie Hunter Dashboard", page_icon="🛡️", layout="wide")
 
+
+
+# --- CUSTOM CSS (Commit 4) ---
+st.markdown("""
+    <style>
+        /* Force Dark Background */
+        .stApp {
+            background-color: #0e1117;
+        }
+        /* Neon Titles */
+        h1, h2, h3 {
+            color: #00ff41 !important;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        /* Metrics Borders */
+        div[data-testid="stMetric"] {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Connect to Redis
 @st.cache_resource
 def get_redis_client():
