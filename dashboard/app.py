@@ -243,6 +243,20 @@ with chart_col2:
     )
     st.plotly_chart(fig_path, use_container_width=True)
 
+
+# --- SCORE DISTRIBUTION (Commit 2) ---
+st.subheader("📊 Anomaly Score Distribution")
+if not df.empty and "risk_score" in df.columns:
+    fig_hist = px.histogram(
+        df, 
+        x="risk_score", 
+        nbins=20,
+        title="Risk Score Spread (0=Safe, 1=Malicious)",
+        color_discrete_sequence=["#FF5500"], # Hacker Orange
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig_hist, use_container_width=True)
+
 # --- RAW DATA TABLE ---
 st.subheader("📝 Recent Traffic Logs")
 st.caption("Copy the 'request_id' to report False Positives in the sidebar.")
