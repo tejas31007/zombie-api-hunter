@@ -219,14 +219,27 @@ if not df.empty:
 # --- LOGS & EXPORT ---
 st.subheader("📝 Intercept Logs")
 
-# --- EXPORT BUTTON (Commit 1) ---
+# --- EXPORT BUTTONS (Commit 1 & 4) ---
+col_d1, col_d2 = st.columns(2)
+
+# CSV Export
 csv = df.to_csv(index=False).encode('utf-8')
-st.download_button(
-    "⬇️ Download Logs as CSV",
+col_d1.download_button(
+    "⬇️ Download CSV",
     csv,
-    "zombie_traffic_logs.csv",
+    "zombie_logs.csv",
     "text/csv",
     key='download-csv'
+)
+
+# JSON Export (Commit 4)
+json_str = df.to_json(orient="records")
+col_d2.download_button(
+    "⬇️ Download JSON",
+    json_str,
+    "zombie_logs.json",
+    "application/json",
+    key='download-json'
 )
 
 st.dataframe(df[["timestamp", "request_id", "action", "ip", "path", "risk_score"]].sort_values("timestamp", ascending=False), use_container_width=True)
