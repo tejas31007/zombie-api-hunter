@@ -52,11 +52,16 @@ except redis.ConnectionError:
 # --- SIDEBAR: AI STATUS ---
 st.sidebar.title("🧟 Zombie Hunter")
 
+# --- REFRESH CONTROLS (Commit 3) ---
+col_r1, col_r2 = st.sidebar.columns(2)
+if col_r1.button("🔄 Refresh"):
+    st.rerun()
+if col_r2.button("🧹 Clear Cache"):
+    st.cache_resource.clear()
+    st.rerun()
+
 # --- LIVE MODE (Commit 2) ---
 live_mode = st.sidebar.toggle("🔴 Live Mode")
-if live_mode:
-    time.sleep(2) # Refresh every 2 seconds
-    st.rerun()
 
 st.sidebar.markdown("---")
 
