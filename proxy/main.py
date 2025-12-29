@@ -24,13 +24,11 @@ redis_client: Optional[redis.Redis] = None
 rate_limiter: Optional[RateLimiter] = None
 
 
-# proxy/main.py
-
 async def log_request(
     request: Request, payload_text: str, action_taken: str, risk_score: float = 0.0
 ) -> None:
     """
-    Pushes a structured log entry to Redis Streams.
+    Pushes a structured log entry to Redis Streams and auto-trims old logs.
     """
     if not redis_client:
         return
@@ -42,7 +40,7 @@ async def log_request(
         "ip": request.client.host if request.client else "unknown",
         "method": request.method,
         "path": request.url.path,
-        "headers": json.dumps(dict(request.headers)), # Flattened
+        "headers": json.dumps(dict(request.headers)), # Flattened for Streams
         "body": payload_text[:1000], 
         "action": action_taken,       
         "risk_score": str(risk_score), # Streams store strings best
@@ -50,8 +48,16 @@ async def log_request(
     }
 
     try:
-        # Use XADD instead of LPUSH
+        # 1. Write to Stream (Commit 2)
         await redis_client.xadd(settings.REDIS_STREAM_NAME, log_entry)
+        
+        # 2. Auto-Cleanup: Delete logs older than 24 hours (Commit 4)
+        # Calculate timestamp for 24 hours ago in milliseconds
+        one_day_ago = int((datetime.datetime.now().timestamp() - 86400) * 1000)
+        
+        # Trim the stream to only keep IDs greater than 'one_day_ago'
+        await redis_client.xtrim(settings.REDIS_STREAM_NAME, minid=str(one_day_ago), approximate=True)
+        
     except Exception as e:
         request_logger.error(f"Failed to push to Redis Stream: {e}")
 
@@ -117,6 +123,7 @@ async def submit_feedback(user_feedback: FeedbackRequest):
     }
 
     try:
+        # Feedback queue can remain a List for now (simpler to process in batch)
         await redis_client.lpush("feedback_queue", json.dumps(feedback_entry))
         print(f"📝 Feedback saved for {user_feedback.request_id}")
         return {"status": "success", "message": "Feedback stored for retraining"}
