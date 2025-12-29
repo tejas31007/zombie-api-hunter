@@ -125,19 +125,30 @@ if st.sidebar.button("🗑️ RESET DATABASE", type="primary"):
 st.sidebar.markdown("---")
 
 # --- MAIN PAGE DATA LOADING ---
+# dashboard/app.py
+
 def load_data():
-    raw_logs = redis_client.lrange(settings.REDIS_QUEUE_NAME, 0, -1)
+    # Use xrange to read from the Stream
+    # min="-" means start from beginning, max="+" means to the end
+    raw_logs = redis_client.xrange(settings.REDIS_STREAM_NAME, min="-", max="+", count=1000)
+    
     if not raw_logs:
         return pd.DataFrame() 
     
     data = []
-    for log in raw_logs:
+    # Stream format is: [(stream_id, {data_dict}), ...]
+    for stream_id, entry in raw_logs:
         try:
-            entry = json.loads(log)
+            # Redis returns dictionaries directly now! 
+            # We just need to ensure fields exist.
             if 'request_id' not in entry: entry['request_id'] = "N/A"
             entry['risk_score'] = float(entry.get('risk_score', 0.0))
+            
+            # Optional: Add the stream_id if you want to debug order
+            entry['stream_id'] = stream_id
+            
             data.append(entry)
-        except json.JSONDecodeError:
+        except Exception:
             continue
             
     df = pd.DataFrame(data)
