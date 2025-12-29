@@ -24,31 +24,36 @@ redis_client: Optional[redis.Redis] = None
 rate_limiter: Optional[RateLimiter] = None
 
 
+# proxy/main.py
+
 async def log_request(
     request: Request, payload_text: str, action_taken: str, risk_score: float = 0.0
 ) -> None:
     """
-    Pushes a structured log entry to Redis for the Dashboard to consume.
+    Pushes a structured log entry to Redis Streams.
     """
     if not redis_client:
         return
 
+    # Prepare data for Stream (Must be flat key-value pairs)
+    # We dump complex objects (like headers) to strings
     log_entry = {
         "timestamp": datetime.datetime.now().isoformat(),
         "ip": request.client.host if request.client else "unknown",
         "method": request.method,
         "path": request.url.path,
-        "headers": dict(request.headers),
-        "body": payload_text[:1000],  # Truncate for performance
-        "action": action_taken,       # e.g., "BLOCKED_AI", "ALLOWED"
-        "risk_score": risk_score,
-        "request_id": str(uuid.uuid4()) # Ensure every log has an ID
+        "headers": json.dumps(dict(request.headers)), # Flattened
+        "body": payload_text[:1000], 
+        "action": action_taken,       
+        "risk_score": str(risk_score), # Streams store strings best
+        "request_id": str(uuid.uuid4())
     }
 
     try:
-        await redis_client.lpush(settings.REDIS_QUEUE_NAME, json.dumps(log_entry))
+        # Use XADD instead of LPUSH
+        await redis_client.xadd(settings.REDIS_STREAM_NAME, log_entry)
     except Exception as e:
-        request_logger.error(f"Failed to push to Redis: {e}")
+        request_logger.error(f"Failed to push to Redis Stream: {e}")
 
 
 @asynccontextmanager
