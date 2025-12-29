@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = 6379
     REDIS_QUEUE_NAME: str = "traffic_logs"
+    REDIS_STREAM_NAME: str = "zombie_stream"
 
     # Rate Limiting (The Speed Limit)
     RATE_LIMIT_COUNT: int = 5  # Max requests
