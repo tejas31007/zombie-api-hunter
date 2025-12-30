@@ -14,9 +14,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from proxy.config import settings
 from proxy.ai_engine import ai_engine
+# NEW IMPORT (Commit 2)
+from dashboard.auth import login_form 
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Zombie Hunter War Room", page_icon="🛡️", layout="wide")
+
+# --- AUTHENTICATION CHECK (Commit 2 & 3) ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    # Show Login Form and STOP execution if not logged in
+    login_form()
+    st.stop()
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -52,6 +63,11 @@ except redis.ConnectionError:
 # --- SIDEBAR: AI STATUS ---
 st.sidebar.title("🧟 Zombie Hunter")
 
+# --- LOGOUT BUTTON (Commit 4) ---
+if st.sidebar.button("🔒 Logout"):
+    st.session_state["authenticated"] = False
+    st.rerun()
+
 # --- REFRESH CONTROLS (Commit 3) ---
 col_r1, col_r2 = st.sidebar.columns(2)
 if col_r1.button("🔄 Refresh"):
@@ -62,6 +78,9 @@ if col_r2.button("🧹 Clear Cache"):
 
 # --- LIVE MODE (Commit 2) ---
 live_mode = st.sidebar.toggle("🔴 Live Mode")
+if live_mode:
+    time.sleep(2) # Refresh every 2 seconds
+    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -125,11 +144,8 @@ if st.sidebar.button("🗑️ RESET DATABASE", type="primary"):
 st.sidebar.markdown("---")
 
 # --- MAIN PAGE DATA LOADING ---
-# dashboard/app.py
-
 def load_data():
     # Use xrange to read from the Stream
-    # min="-" means start from beginning, max="+" means to the end
     raw_logs = redis_client.xrange(settings.REDIS_STREAM_NAME, min="-", max="+", count=1000)
     
     if not raw_logs:
@@ -140,11 +156,9 @@ def load_data():
     for stream_id, entry in raw_logs:
         try:
             # Redis returns dictionaries directly now! 
-            # We just need to ensure fields exist.
             if 'request_id' not in entry: entry['request_id'] = "N/A"
             entry['risk_score'] = float(entry.get('risk_score', 0.0))
             
-            # Optional: Add the stream_id if you want to debug order
             entry['stream_id'] = stream_id
             
             data.append(entry)
@@ -227,8 +241,7 @@ if not df.empty:
     df['lon'] = coords.apply(lambda x: x[1])
     st.map(df, latitude='lat', longitude='lon', size=20, color='#FF0000')
 
-# --- LOGS & EXPORT ---
-st.subheader("📝 Intercept Logs")
+
 
 # --- EXPORT BUTTONS (Commit 1 & 4) ---
 col_d1, col_d2 = st.columns(2)
