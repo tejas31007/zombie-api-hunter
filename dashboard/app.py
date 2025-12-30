@@ -241,7 +241,8 @@ if not df.empty:
     df['lon'] = coords.apply(lambda x: x[1])
     st.map(df, latitude='lat', longitude='lon', size=20, color='#FF0000')
 
-
+# --- LOGS & EXPORT ---
+st.subheader("📝 Intercept Logs")
 
 # --- EXPORT BUTTONS (Commit 1 & 4) ---
 col_d1, col_d2 = st.columns(2)
