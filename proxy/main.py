@@ -3,6 +3,8 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
+from fastapi import Security # Add to existing fastapi import
+from .security import verify_api_key # <--- NEW IMPORT
 
 import httpx
 import redis.asyncio as redis
@@ -135,8 +137,7 @@ async def submit_feedback(user_feedback: FeedbackRequest):
 # =========================================================
 # 🚦 PROXY TRAFFIC HANDLER
 # =========================================================
-
-@app.api_route("/{captured_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+@app.api_route("/{captured_path:path}", methods=["GET", "POST", "PUT", "DELETE"], dependencies=[Security(verify_api_key)])
 async def proxy_request(captured_path: str, incoming_request: Request) -> Any:
     """
     Main pipeline: Intercept -> Rate Limit -> AI Scan -> Forward/Block
