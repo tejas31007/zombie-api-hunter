@@ -108,14 +108,22 @@ with st.sidebar.form("feedback_form"):
     comments = st.text_area("Comments", key="fb_comments")
     if st.form_submit_button("Submit"):
         try:
-            requests.post("http://localhost:8000/feedback", json={
-                "request_id": req_id_input,
-                "actual_label": correct_label,
-                "comments": comments
-            })
+            # --- COMMIT 4 CHANGE: Add API Key Header ---
+            headers = {"X-API-Key": settings.PROXY_API_KEY}
+            
+            requests.post(
+                "http://localhost:8000/feedback", 
+                json={
+                    "request_id": req_id_input,
+                    "actual_label": correct_label,
+                    "comments": comments
+                },
+                headers=headers # <--- Passing Key here
+            )
             st.success("Sent!")
-        except:
-            st.error("Failed.")
+        except Exception as e:
+            st.error(f"Failed: {e}")
+            
 st.sidebar.button("Reset", on_click=clear_form)
 
 st.sidebar.markdown("---")
