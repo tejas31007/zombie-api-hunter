@@ -1,4 +1,5 @@
 import os
+import secrets
 
 from pydantic_settings import BaseSettings
 
@@ -14,6 +15,8 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_QUEUE_NAME: str = "traffic_logs"
     REDIS_STREAM_NAME: str = "zombie_stream"
+
+    PROXY_API_KEY: str = secrets.token_urlsafe(32)
 
     # Rate Limiting (The Speed Limit)
     RATE_LIMIT_COUNT: int = 5  # Max requests
