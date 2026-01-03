@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 from fastapi import APIRouter, Request, Response, Security
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 # Internal Modules
 from . import state  # <--- Access the shared clients
@@ -24,6 +24,10 @@ async def log_request(request: Request, payload_text: str, action_taken: str, ri
     if not state.redis_client:
         return
 
+    # 1. GET ID FROM MIDDLEWARE (Traceability Fix)
+    # We use the same ID that was returned to the client in the headers
+    req_id = getattr(request.state, "request_id", "unknown")
+
     log_entry = {
         "timestamp": datetime.datetime.now().isoformat(),
         "ip": request.client.host if request.client else "unknown",
@@ -33,7 +37,7 @@ async def log_request(request: Request, payload_text: str, action_taken: str, ri
         "body": payload_text[:1000],
         "action": action_taken,
         "risk_score": str(risk_score),
-        "request_id": str(uuid.uuid4())
+        "request_id": req_id  # <--- NOW CONSISTENT WITH HEADERS
     }
 
     try:
@@ -43,6 +47,29 @@ async def log_request(request: Request, payload_text: str, action_taken: str, ri
         await state.redis_client.xtrim(settings.REDIS_STREAM_NAME, minid=str(one_day_ago), approximate=True)
     except Exception as e:
         request_logger.error(f"Failed to push to Redis Stream: {e}")
+
+# --- ROUTE: HEALTH CHECK (New) ---
+@router.get("/health")
+async def health_check():
+    """
+    Checks if the API and Redis are running.
+    """
+    health_status = {"status": "ok", "redis": "connected"}
+    
+    # Check Redis Connection
+    try:
+        if state.redis_client:
+            await state.redis_client.ping()
+        else:
+            health_status["status"] = "degraded"
+            health_status["redis"] = "disconnected"
+    except Exception as e:
+        health_status["status"] = "error"
+        health_status["redis"] = str(e)
+
+    # Return 200 only if fully healthy
+    status_code = 200 if health_status["status"] == "ok" else 503
+    return JSONResponse(content=health_status, status_code=status_code)
 
 # --- ROUTE: FEEDBACK ---
 @router.post("/feedback")
@@ -69,6 +96,7 @@ async def submit_feedback(user_feedback: FeedbackRequest):
 @router.api_route("/{captured_path:path}", methods=["GET", "POST", "PUT", "DELETE"], dependencies=[Security(verify_api_key)])
 async def proxy_request(captured_path: str, incoming_request: Request) -> Any:
     target_endpoint = f"/{captured_path}"
+    req_id = getattr(incoming_request.state, "request_id", "unknown")
 
     if not state.rate_limiter or not state.http_client:
         return Response("System initializing...", status_code=503)
@@ -98,10 +126,10 @@ async def proxy_request(captured_path: str, incoming_request: Request) -> Any:
 
     if security_verdict == -1:
         await log_request(incoming_request, decoded_payload, "BLOCKED_AI", threat_probability)
-        block_id = str(uuid.uuid4())
-        request_logger.warning(f"⛔ BLOCKED | ID: {block_id} | Score: {threat_probability:.4f} | Path: {target_endpoint}")
+        # Use the MIDDLEWARE ID for the block page so admins can trace it
+        request_logger.warning(f"⛔ BLOCKED | ID: {req_id} | Score: {threat_probability:.4f} | Path: {target_endpoint}")
 
-        html_content = load_template("blocked.html", {"client_ip": client_ip, "request_id": block_id})
+        html_content = load_template("blocked.html", {"client_ip": client_ip, "request_id": req_id})
         if html_content:
             return HTMLResponse(content=html_content, status_code=403)
         return Response(content='{"error": "Blocked by Zombie Hunter"}', status_code=403)
@@ -123,4 +151,4 @@ async def proxy_request(captured_path: str, incoming_request: Request) -> Any:
             media_type=upstream_response.headers.get("content-type"),
         )
     except Exception as exc:
-        return {"error": f"Connection to victim failed: {str(exc)}"}
+        return JSONResponse(status_code=502, content={"error": f"Connection to victim failed: {str(exc)}"})
