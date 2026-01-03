@@ -1,48 +1,53 @@
 version: '3.8'
 
 services:
-  zombie-redis:
+  # 1. The Brain (Redis Database) - Docker handles the installation!
+  redis:
     image: redis:alpine
-    container_name: zombie-redis
     ports:
       - "6379:6379"
+    networks:
+      - zombie-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
-    networks:
-      - hunter-net
 
-  hunter-proxy:
+  # 2. The Hunter (API Proxy)
+  proxy:
     build:
       context: .
       dockerfile: Dockerfile.proxy
     ports:
       - "8000:8000"
     environment:
-      - REDIS_HOST=zombie-redis
-      - TARGET_URL=http://host.docker.internal:8080
+      # Tell the app to look for the "redis" container, not "localhost"
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TARGET_URL=http://example.com
     depends_on:
-      zombie-redis:
+      redis:
         condition: service_healthy
     networks:
-      - hunter-net
+      - zombie-net
 
-  war-room-dashboard:
+  # 3. The Monitor (Dashboard)
+  dashboard:
     build:
       context: .
       dockerfile: Dockerfile.dashboard
     ports:
       - "8501:8501"
     environment:
-      - REDIS_HOST=zombie-redis
+      # Dashboard talks to the API via the 'proxy' service name
+      - PROXY_URL=http://proxy:8000
+      - REDIS_HOST=redis
     depends_on:
-      zombie-redis:
-        condition: service_healthy
+      - proxy
     networks:
-      - hunter-net
+      - zombie-net
 
 networks:
-  hunter-net:
+  zombie-net:
     driver: bridge

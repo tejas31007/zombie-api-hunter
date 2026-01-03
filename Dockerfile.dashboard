@@ -1,22 +1,14 @@
-# STAGE 1: Builder
-FROM python:3.11-slim as builder
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
-
-# STAGE 2: Runtime
+# Use Python 3.11 to match your local environment
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy installed packages
-COPY --from=builder /root/.local /root/.local
+COPY requirements.txt .
 
-# Copy dashboard code
-COPY dashboard/ ./dashboard/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Update PATH
-ENV PATH=/root/.local/bin:$PATH
+COPY . .
+
+EXPOSE 8501
 
 CMD ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
