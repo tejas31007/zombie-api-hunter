@@ -49,6 +49,7 @@ async def log_request(request: Request, payload_text: str, action_taken: str, ri
         request_logger.error(f"Failed to push to Redis Stream: {e}")
 
 # --- ROUTE: HEALTH CHECK (New) ---
+#/health check endpoint to verify API and Redis status
 @router.get("/health")
 async def health_check():
     """
