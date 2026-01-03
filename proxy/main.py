@@ -1,21 +1,20 @@
-# proxy/main.py
 from contextlib import asynccontextmanager
 from typing import Any
 import httpx
 import redis.asyncio as redis
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException # <--- NEW IMPORT
 
 # Internal Imports
 from .config import settings
 from .middleware import TimingMiddleware
 from .rate_limiter import RateLimiter
 from .router import router
-from . import state  # We import state to initialize the globals
+from . import state
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    # 1. Initialize Clients in the shared 'state' module
     state.http_client = httpx.AsyncClient(base_url=settings.TARGET_URL)
     print(f"🔒 Hunter connected to Target: {settings.TARGET_URL}")
 
@@ -25,37 +24,46 @@ async def lifespan(app: FastAPI) -> Any:
     print(f"🧠 Connected to Redis at {settings.REDIS_HOST}:{settings.REDIS_PORT}")
 
     state.rate_limiter = RateLimiter(state.redis_client)
-    
     yield
-    
-    # 2. Cleanup
-    if state.http_client:
-        await state.http_client.aclose()
-    if state.redis_client:
-        await state.redis_client.aclose()
+    if state.http_client: await state.http_client.aclose()
+    if state.redis_client: await state.redis_client.aclose()
     print("🔓 Hunter disconnected")
 
-app = FastAPI(
-    title="Zombie API Hunter",
-    description="A reverse proxy with ML-powered anomaly detection.",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# --- MIDDLEWARE ---
+app = FastAPI(title="Zombie API Hunter", lifespan=lifespan)
 app.add_middleware(TimingMiddleware)
 
-# --- GLOBAL EXCEPTION HANDLER (Commit 4) ---
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+# --- 1. CUSTOM 404 HANDLER (Client Errors) ---
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """
+    Catches 404 Not Found, 405 Method Not Allowed, etc.
+    Returns clean JSON instead of default text.
+    """
     return JSONResponse(
-        status_code=500,
+        status_code=exc.status_code,
         content={
-            "error": "Internal Zombie Error",
-            "detail": str(exc),
+            "status": "error",
+            "code": exc.status_code,
+            "message": exc.detail,
             "path": request.url.path
         }
     )
 
-# --- INCLUDE ROUTES ---
+# --- 2. GLOBAL 500 HANDLER (Server Crashes) ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Catches any unhandled crashes (bugs) and hides the stack trace from the user.
+    """
+    print(f"💥 CRITICAL ERROR: {exc}") # Log it for us
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "code": 500,
+            "message": "Internal System Error",
+            "path": request.url.path
+        }
+    )
+
 app.include_router(router)
